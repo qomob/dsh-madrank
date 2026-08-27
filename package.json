@@ -1,0 +1,35 @@
+{
+  "name": "dsh-madrank",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build:client": "node tools/build-client.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "reconcile": "node --experimental-strip-types tools/reconcile-cli.ts",
+    "preview": "node --experimental-strip-types tools/build-card-preview.ts",
+    "reconcile:fixture": "node --experimental-strip-types tools/reconcile-cli.ts tests/fixtures/real-world/usage-events.jsonl",
+    "verify:dsh": "node --experimental-strip-types tools/verify-compat.ts"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "zod": "^4.4.3"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "_note": "浏览器半侧经 DSH 客户端模块系统打包后启用；见 README 集成章节"
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18"
+  }
+}

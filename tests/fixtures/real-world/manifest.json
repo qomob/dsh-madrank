@@ -1,0 +1,26 @@
+{
+  "fixtureVersion": 1,
+  "kind": "desensitized-real-dsh-usage",
+  "generatedAt": "2026-08-27T02:29:20.018Z",
+  "dshCommitAtGeneration": "141eb6fef8",
+  "sourceEventCount": 474,
+  "fixtureEventCount": 474,
+  "utcDays": [
+    "2020-01-05",
+    "2020-01-06"
+  ],
+  "modelRenameCount": 2,
+  "transform": {
+    "timeShift": "all times moved by whole days to a neutral epoch; time-of-day preserved",
+    "tokens": "f(t) = floor(t*3 + 11), uniform",
+    "models": "bijection to provider-{n}/model-{m}"
+  },
+  "goldenAggregate": {
+    "input": 2237923,
+    "output": 561535,
+    "cacheRead": 79059715,
+    "cacheWrite": 2563,
+    "requests": 233
+  },
+  "sha256": "3d005b6687b02dda470872dfc58926dc4dd2526ee23a00b99866bf564e66e75d"
+}
