@@ -82,14 +82,25 @@ function readOrCreateInstallId(): string {
 const storeHolder: { store?: UsageStore; settings: Settings; ctx?: CtxLike } = {
   settings: SettingsSchema.parse({}) as Settings,
 }
+/** 活设置来源：attach 前读默认值，attach 后由 setSource 换成宿主解析 thunk。 */
+let settingsSource: () => Settings = () => storeHolder.settings
 
+const viewSchema = buildViewSchema()
 const definition: ProjectionDefinitionLike = {
   key: PROJECTION_KEY,
-  schema: buildViewSchema() as unknown as ProjectionDefinitionLike['schema'],
+  // —— rc.8 旧字段：保留，双版本兼容 ——
+  schema: viewSchema as unknown as ProjectionDefinitionLike['schema'],
+  view: ((state: MadrankState) => buildView(state)) as never,
+  // —— rc.2 契约：必须显式声明客户端视图，否则按 host-only 处理
+  //    （值不出宿主、onChanged 不触发 ⇒ 卡片全零 / store 不落盘）——
+  stateSchema: buildStateSchema() as unknown as ProjectionDefinitionLike['stateSchema'],
+  wire: {
+    viewSchema: viewSchema as unknown as NonNullable<ProjectionDefinitionLike['wire']>['viewSchema'],
+    view: ((state: MadrankState) => buildView(state)) as never,
+  },
   init: () => initState(),
   apply: ((state: MadrankState, event: import('./compat.ts').SessionEventLike) =>
     applyEvent(state, event)) as never,
-  view: ((state: MadrankState) => buildView(state)) as never,
   stateVersion: STATE_VERSION,
 }
 
@@ -114,6 +125,32 @@ function buildViewSchema() {
     totalRequests: z.number().int().nonnegative(),
     totalPrimaryTokens: z.number().int().nonnegative(),
     totalCachedTokens: z.number().int().nonnegative(),
+  })
+}
+
+/**
+ * rc.2：持久化状态（MadrankState）在 seed/restore 前必须通过 stateSchema。
+ * 注意校验对象是 fold 内部状态（含 activity/last），与 wire 视图形状不同。
+ */
+function buildStateSchema() {
+  const buckets = z.object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cacheReadTokens: z.number(),
+    cacheWriteTokens: z.number(),
+    requests: z.number(),
+  })
+  return z.object({
+    currentModelKey: z.string().nullable(),
+    days: z.record(z.string(), z.record(z.string(), buckets)),
+    activity: z.record(z.string(), z.array(z.tuple([z.number(), z.number()]))),
+    last: z.object({
+      turn: z.number(),
+      step: z.number(),
+      ymd: z.string(),
+      modelKey: z.string(),
+      buckets,
+    }).nullable(),
   })
 }
 
@@ -167,7 +204,7 @@ export function apply(ctx: CtxLike & Record<string, unknown>): void {
 
   // 3) opt-in 日级批量同步检查（≤1 次/分钟；只碰已结束的 UTC 日）
   const tick = () => {
-    const s = storeHolder.settings
+    const s = settingsSource()
     if (!s.enabled || !s.endpoint || !storeHolder.store) return
     void syncPendingDays(store, s, getAnonId, globalThis.fetch.bind(globalThis))
       .then((outcomes) => {
@@ -178,21 +215,41 @@ export function apply(ctx: CtxLike & Record<string, unknown>): void {
   const timer = setInterval(tick, 60_000)
   timer.unref?.()
 
-  // 4) Settings section（有 settings 缝时自动挂卡片配置；无缝则保持默认离线）
+  // 4) Settings section 声明（双版本适配）。
+  //    rc.8：ctx.installSettingsSection(ctx, ns, schema, current, hooks)。
+  //    rc.2：installSettingsSection 移出 ctx（dsh-settings 具名导出），等价动作为
+  //    ctx.inject(['settings'], sctx => sctx.settings.register(ns, callable, { base }))。
+  //    ⚠️ rc.2 的 resolve() 以 schema(merged) 可调用约定消费 schema —— zod 需适配器；
+  //    不声明 ⇒ 客户端 scope 恒 unavailable ⇒ 卡片 Join 按钮点击无任何效果。
   try {
-    ;(ctx as { installSettingsSection?: NonNullable<CtxLike['installSettingsSection']> })
-      ?.installSettingsSection?.(
-        ctx,
-        SETTINGS_NS,
-        SettingsSchema,
-        storeHolder.settings,
-        {
-          setSource: (get) => { storeHolder.settings = get() },
-          onChange: () => { /* 下一个 tick 生效 */ },
-        },
-      )
-  } catch {
-    log.info('settings seam absent — running with defaults (sync off)')
+    const hooks = {
+      setSource: (get: () => Settings) => { settingsSource = get },
+      onChange: () => { /* 下一个 tick 生效 */ },
+    }
+    const legacy = (ctx as { installSettingsSection?: CtxLike['installSettingsSection'] })
+      .installSettingsSection
+    if (typeof legacy === 'function') {
+      legacy.call(ctx, ctx, SETTINGS_NS, SettingsSchema, storeHolder.settings, hooks)
+    } else if (typeof ctx.inject === 'function') {
+      ctx.inject(['settings'], (sctx) => {
+        const provider = sctx?.settings
+        if (!provider || typeof provider.register !== 'function') return
+        // zod → 可调用适配：rc.2 resolve() 执行 schema(mergeLayers(base, section))
+        const callable = (merged: unknown) => SettingsSchema.parse(merged)
+        const scope = provider.register(
+          SETTINGS_NS as never,
+          callable as never,
+          { base: { ...storeHolder.settings } } as never,
+        )
+        hooks.setSource(() => scope.get())
+        hooks.onChange()
+        scope.watch(() => { /* 设置变更 → 下一个 tick 生效 */ })
+      })
+    } else {
+      log.warn('settings seam absent — running with defaults (sync off)')
+    }
+  } catch (e) {
+    log.warn('settings declare failed — sync stays off', e)
   }
 
   // 清理：挂宿主生命周期事件；cordis 卸载插件时自动触发
