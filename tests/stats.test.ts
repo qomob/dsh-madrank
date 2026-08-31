@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lastNDays, streakDays, topModels, todayCard, raceMetric7d } from '../src/stats.ts'
+import { dayDetail, lastNDays, streakDays, topModels, todayCard, raceMetric7d } from '../src/stats.ts'
 import type { DayAggregate } from '../src/stats.ts'
 
 const NOW = Date.UTC(2026, 7, 27, 15)   // 2026-08-27T15:00Z
@@ -74,6 +74,25 @@ describe('topModels', () => {
 
   it('空日返回空数组而不是 NaN', () => {
     expect(topModels({}, '2026-08-27')).toEqual([])
+  })
+})
+
+describe('dayDetail（任意单日明细）', () => {
+  it('in/out 拆分、请求数、活跃时长与 TODAY 同口径', () => {
+    const d = dayDetail(fixture(), '2026-08-27')
+    expect(d.ymd).toBe('2026-08-27')
+    expect(d.primaryTokens).toBe(1_615_000)
+    expect(d.inputTokens).toBe(1_210_000)
+    expect(d.outputTokens).toBe(405_000)
+    expect(d.requests).toBe(300 + 90 + 6)
+    expect(d.activeSeconds).toBe(7200)
+  })
+
+  it('缺日 → 全零诚实值（不出 NaN/伪基准）', () => {
+    const d = dayDetail(fixture(), '2026-08-24')
+    expect(d.primaryTokens).toBe(0)
+    expect(d.requests).toBe(0)
+    expect(d.activeSeconds).toBe(0)
   })
 })
 

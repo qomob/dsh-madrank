@@ -34,6 +34,22 @@ export function summarizeDay(ymd: string, day: {
   return { ymd, primaryTokens: primary, cachedTokens: cached, requests, activeSeconds: day.activeSeconds }
 }
 
+/** 卡片历史窗口上限（30 天视图 + 单日回看的取数窗口；card-data/snapshot/preview 对齐）。 */
+export const HISTORY_WINDOW_DAYS = 60
+
+/** 任意单日的完整明细（in/out 拆分；day 视图与 TODAY 同口径）。 */
+export interface DayDetail extends DaySummary {
+  inputTokens: number
+  outputTokens: number
+}
+
+export function dayDetail(aggregate: DayAggregate, ymd: string): DayDetail {
+  const day = aggregate[ymd]
+  const s = summarizeDay(ymd, day ?? { models: {}, activeSeconds: 0 })
+  const { inputTokens, outputTokens } = splitPrimary(day?.models ?? {})
+  return { ...s, inputTokens, outputTokens }
+}
+
 export interface TodayCardData {
   ymd: string
   primaryTokens: number

@@ -50,6 +50,19 @@ window.__ModuleLoader__.load({
 				activeSeconds: day.activeSeconds
 			};
 		}
+		function dayDetail(aggregate, ymd) {
+			const day = aggregate[ymd];
+			const s = summarizeDay(ymd, day ?? {
+				models: {},
+				activeSeconds: 0
+			});
+			const { inputTokens, outputTokens } = splitPrimary(day?.models ?? {});
+			return {
+				...s,
+				inputTokens,
+				outputTokens
+			};
+		}
 		function todayCard(aggregate, nowMs) {
 			const ymd = new Date(nowMs).toISOString().slice(0, 10);
 			const day = aggregate[ymd];
@@ -201,6 +214,13 @@ window.__ModuleLoader__.load({
 			}
 			return agg;
 		}
+		/** 卡片历史窗口（30 天视图 + 单日回看；card-html 的 history 消费口径）。 */
+		function buildHistory(agg, nowMs) {
+			return lastNDays(agg, nowMs, 60).map((d) => ({
+				...dayDetail(agg, d.ymd),
+				topModels: topModels(agg, d.ymd)
+			}));
+		}
 		/** 列表快照 → 卡片展示所需的完整口径集（不含 global：本地版恒无排名）。 */
 		function cardDataFromList(snap, nowMs) {
 			const agg = mergeViews(extractViews(snap));
@@ -211,8 +231,118 @@ window.__ModuleLoader__.load({
 				last7: lastNDays(agg, nowMs, 7).map((d) => ({
 					ymd: d.ymd,
 					primaryTokens: d.primaryTokens
-				}))
+				})),
+				history: buildHistory(agg, nowMs)
 			};
+		}
+		//#endregion
+		//#region src/client/i18n.ts
+		/** zh 系（zh / zh-CN / zh-TW…）→ zh；其余 → en。 */
+		function resolveLang(raw) {
+			return typeof raw === "string" && raw.toLowerCase().startsWith("zh") ? "zh" : "en";
+		}
+		const DICTS = {
+			en: {
+				pillLocal: "Local only",
+				pillOn: "Global ranking on",
+				cardTitle: "MADRank Usage",
+				todayLabel: "TODAY · UNCACHED TOKENS",
+				todayEmpty: "TODAY",
+				noUsage: "No usage recorded yet. Numbers appear after your next AI turn.",
+				heroRequests: "<b>{n}</b> requests",
+				heroActive: "<b>{n}</b> active",
+				segIn: "{v} in",
+				segOut: "{v} out",
+				segCached: "{v} cached",
+				cachedTip: "Cached tokens are shown separately and are not included in your primary usage score.",
+				chipVs: "vs 7d avg",
+				chipStreak: "{n}-day streak",
+				mostUsed: "Most used",
+				last7: "Last 7 days",
+				last30: "Last 30 days",
+				seg7d: "7D",
+				seg30d: "30D",
+				segDay: "Day",
+				dayHeading: "{w} · {d}",
+				joinFine: "Optional: share <b>daily aggregates only</b> (token counts, model names). Never prompts, responses, or files. Off by default.",
+				joinCta: "Join global ranking",
+				yourRank: "Your global rank",
+				topChip: "TOP {x}%",
+				race7dLabel: "7-day tokens",
+				shareFine: "Sharing daily token aggregates anonymously · anonId • {mask}. Never prompts or responses.",
+				joinedPending: "Joined — your rank appears after tonight’s first daily sync.",
+				viewRace: "View race",
+				leave: "Leave",
+				footerUpdated: "Updated {t} UTC"
+			},
+			zh: {
+				pillLocal: "仅本地",
+				pillOn: "全球排名已开启",
+				cardTitle: "MADRank 用量",
+				todayLabel: "今日 · 未缓存 Token",
+				todayEmpty: "今日",
+				noUsage: "还没有用量记录，下一次 AI 对话后就会出现数字。",
+				heroRequests: "<b>{n}</b> 次请求",
+				heroActive: "活跃 <b>{n}</b>",
+				segIn: "输入 {v}",
+				segOut: "输出 {v}",
+				segCached: "缓存 {v}",
+				cachedTip: "缓存 Token 单独展示，不计入你的主用量口径。",
+				chipVs: "vs 7日均值",
+				chipStreak: "连续 {n} 天",
+				mostUsed: "常用模型",
+				last7: "最近 7 天",
+				last30: "最近 30 天",
+				seg7d: "7天",
+				seg30d: "30天",
+				segDay: "单日",
+				dayHeading: "{w} · {d}",
+				joinFine: "可选：仅共享<b>每日聚合数字</b>（Token 数与模型名）。绝不上传提示词、回复或文件。默认关闭。",
+				joinCta: "加入全球排名",
+				yourRank: "你的全球排名",
+				topChip: "前 {x}%",
+				race7dLabel: "7 日 Token",
+				shareFine: "匿名共享每日 Token 聚合 · anonId • {mask} · 绝不含提示词与回复。",
+				joinedPending: "已加入 — 完成今晚首次日级同步后显示排名。",
+				viewRace: "查看排名赛",
+				leave: "退出",
+				footerUpdated: "更新于 {t} UTC"
+			}
+		};
+		/** 取词 + {name} 插值；缺键回退 en，再缺回显 key（fail loud，对齐官方 lookup 链）。 */
+		function tr(lang, key, vars) {
+			let s = DICTS[lang][key] ?? DICTS.en[key] ?? key;
+			if (vars) for (const [k, v] of Object.entries(vars)) s = s.split("{" + k + "}").join(String(v));
+			return s;
+		}
+		/** 星期短标（直方列头；zh 两字宽与 9px 列头适配）。 */
+		const WEEKDAYS = {
+			en: [
+				"Sun",
+				"Mon",
+				"Tue",
+				"Wed",
+				"Thu",
+				"Fri",
+				"Sat"
+			],
+			zh: [
+				"周日",
+				"周一",
+				"周二",
+				"周三",
+				"周四",
+				"周五",
+				"周六"
+			]
+		};
+		/** 活跃时长：en “1h 05m / 52m”；zh “1小时05分 / 52分钟”。 */
+		function fmtActive(seconds, lang) {
+			if (seconds <= 0) return "—";
+			const h = Math.floor(seconds / 3600);
+			const m = Math.round(seconds % 3600 / 60);
+			if (lang === "zh") return h > 0 ? h + "小时" + String(m).padStart(2, "0") + "分" : m + "分钟";
+			return h > 0 ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
 		}
 		//#endregion
 		//#region src/client/card-html.ts
@@ -224,7 +354,8 @@ window.__ModuleLoader__.load({
 		*   - 状态点（statusDot）+ 状态 pill（configTag）表达 Local/Sync
 		*   - 分区标题 + 数量、details 网格（dt/dd）、focus-visible 环
 		*   - 动效 .14s var(--ds-ease-in-out)，尊重 prefers-reduced-motion
-		* 口径注释：Primary = uncached input + output；缓存单列 "+N cached"。
+		*   - 文案双语（i18n.ts 单一词典），语言跟随宿主 ctx.locale
+		* 口径注释：Primary = uncached input + output；缓存单列 "N cached ⓘ"（hover 出口径说明）。
 		*****************************************************************************/
 		const SETTINGS_NS = "madrank-usage";
 		/** 安全读取 enabled；scope 未就绪/形状异常时一律 false（离线默认）。 */
@@ -241,12 +372,6 @@ window.__ModuleLoader__.load({
 			if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
 			if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
 			return String(n);
-		}
-		function fmtActive(seconds) {
-			if (seconds <= 0) return "—";
-			const h = Math.floor(seconds / 3600);
-			const m = Math.round(seconds % 3600 / 60);
-			return h > 0 ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
 		}
 		const esc = (s) => s.replace(/[&<>"']/g, (ch) => ({
 			"&": "&amp;",
@@ -274,6 +399,9 @@ window.__ModuleLoader__.load({
 			".madrank-card .mk-tag[data-on=true]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);",
 			"  color:var(--dsw-alias-state-success-primary)}",
 			".madrank-card .mk-tag[data-on=true] .mk-dot{background:var(--dsw-alias-state-success-primary)}",
+			"/* Local 态：空心点（off=空心 / on=实心绿 的开关语法；off 是刻意设计而非失效） */",
+			".madrank-card .mk-tag[data-on=false] .mk-dot{background:transparent;",
+			"  box-sizing:border-box;width:8px;height:8px;border:1.5px solid var(--dsw-alias-label-tertiary)}",
 			"/* Hero：今日主数字 */",
 			".madrank-card .mk-hero{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;",
 			"  background:var(--dsw-alias-bg-layer-3);padding:12px 14px;display:flex;flex-direction:column;gap:4px}",
@@ -314,6 +442,13 @@ window.__ModuleLoader__.load({
 			".madrank-card .mk-hbar{flex:1;width:100%;display:flex;align-items:flex-end}",
 			".madrank-card .mk-hbar i{display:block;width:100%;background:var(--dsw-alias-state-business-primary);",
 			"  opacity:.55;border-radius:2px 2px 0 0;min-height:2px}",
+			"/* 直方柱可点（进入单日视图）；30 天密排：隐藏柱内数值、每周刻度 */",
+			".madrank-card button.mk-hbar{min-height:0;padding:0;border:0;border-radius:0;",
+			"  background:transparent;cursor:pointer}",
+			".madrank-card button.mk-hbar:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);",
+			"  outline-offset:1px}",
+			".madrank-card .mk-hist[data-cols=\"30\"]{gap:2px}",
+			".madrank-card .mk-hist[data-cols=\"30\"] .mk-hbar i{border-radius:1px 1px 0 0}",
 			".madrank-card .mk-hval{font-size:9px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
 			".madrank-card .mk-hname{font-size:9px;color:var(--dsw-alias-label-tertiary)}",
 			"/* 同步区：单句承诺 + 官方形制按钮 */",
@@ -328,6 +463,44 @@ window.__ModuleLoader__.load({
 			".madrank-card button.mk-primary{background:var(--dsw-alias-state-business-primary);border-color:transparent;",
 			"  color:#fff}",
 			".madrank-card button.mk-primary:hover{filter:brightness(1.06);background:var(--dsw-alias-state-business-primary)}",
+			"/* 范围切换（7D/30D/单日）：标题行右侧分段控件 */",
+			".madrank-card .mk-hspring{flex:1}",
+			".madrank-card .mk-seg{display:inline-flex;gap:2px;padding:2px;border-radius:6px;",
+			"  background:var(--dsw-alias-bg-layer-1);flex:none;align-self:center}",
+			".madrank-card button.mk-segbtn{width:auto;min-height:0;padding:1px 8px;border:0;border-radius:4px;",
+			"  background:transparent;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;",
+			"  font-weight:500;cursor:pointer}",
+			".madrank-card button.mk-segbtn[aria-pressed=true]{background:var(--dsw-alias-bg-layer-3);",
+			"  color:var(--dsw-alias-label-primary)}",
+			".madrank-card button.mk-segbtn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);",
+			"  outline-offset:-1px}",
+			"/* 单日视图：日期标题 + 紧凑主数字 */",
+			".madrank-card .mk-daysize{font-size:22px;line-height:28px}",
+			".madrank-card button.mk-quiet{width:auto;min-height:24px;padding:2px 8px;border:none;border-radius:6px;",
+			"  background:transparent;color:var(--dsw-alias-label-tertiary);font-size:11px;font-weight:400}",
+			".madrank-card button.mk-quiet:hover{color:var(--dsw-alias-label-secondary);",
+			"  background:var(--dsw-alias-interactive-bg-hover)}",
+			"/* joined：Your global rank 区（替换 Join CTA；Utility 恒在 Gamification 之上） */",
+			".madrank-card .mk-rankrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}",
+			".madrank-card .mk-rankrow .mk-big{font-size:24px;line-height:30px}",
+			".madrank-card .mk-rlab{font-size:11px;color:var(--dsw-alias-label-tertiary);",
+			"  letter-spacing:.04em;text-transform:uppercase;margin-right:8px}",
+			".madrank-card .mk-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}",
+			".madrank-card a.mk-race{font-size:12px;font-weight:500;line-height:20px;",
+			"  color:var(--dsw-alias-state-business-primary);text-decoration:none;border-radius:4px}",
+			".madrank-card a.mk-race:hover{text-decoration:underline}",
+			".madrank-card a.mk-race:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}",
+			"/* cached ⓘ：纯 CSS tooltip（hover/focus），口径说明单点解释 */",
+			".madrank-card .mk-tip{position:relative;cursor:help;",
+			"  border-bottom:1px dotted var(--dsw-alias-border-l2)}",
+			".madrank-card .mk-tip i{font-style:normal;color:var(--dsw-alias-label-tertiary);margin-left:2px}",
+			".madrank-card .mk-tip::after{content:attr(data-tip);position:absolute;right:-6px;bottom:calc(100% + 7px);",
+			"  width:220px;padding:7px 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);",
+			"  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);",
+			"  font-size:11px;line-height:1.5;white-space:normal;",
+			"  box-shadow:var(--dsw-shadow-lv1,0 4px 16px rgba(0,0,0,.25));",
+			"  opacity:0;pointer-events:none;transition:opacity .14s var(--ds-ease-in-out);z-index:2}",
+			".madrank-card .mk-tip:hover::after,.madrank-card .mk-tip:focus-visible::after{opacity:1}",
 			"/* 图例页脚 */",
 			".madrank-card .mk-foot{display:flex;justify-content:space-between;gap:10px;",
 			"  font-size:10px;color:var(--dsw-alias-label-tertiary);padding:0 2px}",
@@ -335,7 +508,7 @@ window.__ModuleLoader__.load({
 			"  .madrank-card .mk-bar i,.madrank-card .mk-hbar i{transition:width .14s var(--ds-ease-in-out),height .14s var(--ds-ease-in-out)}}"
 		].join("");
 		/**
-		* 大号变体（居中模态用）：解锁固定宽、放大字型、中段双栏、同步区横排。
+		* 大号变体（居中模态用）：解锁固定宽、放大字型、同步区横排。
 		* 仅作用于 .madrank-card-lg（由 renderCardHtml 的 opts.size='lg' 挂载）。
 		*/
 		const LG_CSS = [
@@ -350,10 +523,15 @@ window.__ModuleLoader__.load({
 			".madrank-card-lg .mk-chip{font-size:12px;line-height:20px;padding:2px 10px}",
 			".madrank-card-lg .mk-h b{font-size:13px}",
 			".madrank-card-lg .mk-h span{font-size:12px}",
-			"/* 中段双栏：rank | most used；窄屏自动单列 */",
-			".madrank-card-lg .mk-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);",
-			"  gap:4px 26px;align-items:start}",
+			"/* 模型行放大（Global rank 已下移至同步区） */",
 			".madrank-card-lg .mk-mrow{font-size:13px;margin-top:8px}",
+			".madrank-card-lg .mk-rankrow .mk-big{font-size:34px;line-height:40px}",
+			".madrank-card-lg .mk-rlab{font-size:12px}",
+			".madrank-card-lg a.mk-race{font-size:13px}",
+			".madrank-card-lg .mk-tip::after{width:260px;font-size:12px}",
+			".madrank-card-lg button.mk-quiet{min-width:0;min-height:24px;padding:2px 8px;font-size:12px}",
+			".madrank-card-lg .mk-daysize{font-size:30px;line-height:36px}",
+			".madrank-card-lg button.mk-segbtn{min-width:0;min-height:0;padding:1px 9px;font-size:11px}",
 			".madrank-card-lg .mk-bar{height:6px;border-radius:3px;margin-top:3px}",
 			".madrank-card-lg .mk-hist{height:110px;gap:9px}",
 			".madrank-card-lg .mk-hval,.madrank-card-lg .mk-hname{font-size:10px}",
@@ -365,7 +543,6 @@ window.__ModuleLoader__.load({
 			"  width:auto;min-width:220px;flex:none}",
 			".madrank-card-lg .mk-foot{font-size:11px}",
 			"@media (max-width:620px){",
-			"  .madrank-card-lg .mk-cols{grid-template-columns:minmax(0,1fr)}",
 			"  .madrank-card-lg .mk-sync{flex-direction:column;align-items:stretch}",
 			"  .madrank-card-lg .mk-fine{max-width:none}",
 			"  .madrank-card-lg button{width:100%}}"
@@ -381,87 +558,187 @@ window.__ModuleLoader__.load({
 			tag.textContent = CSS + LG_CSS;
 			document.head.appendChild(tag);
 		}
-		function htmlHero(t) {
+		/** 匿名 ID 掩码（shareFine 的 {mask} 占位；两种语言共用同一标记）。 */
+		const ANON_MASK = "<span style=\"font-family:var(--ds-font-family-code)\">••••</span>";
+		/** 明细分段（requests/active/in/out/cached+tip）；hero 与单日视图共用同一口径。 */
+		function breakdownParts(d, hasData, lang) {
+			const parts = [];
+			parts.push(tr(lang, "heroRequests", { n: fmtTokens(d.requests) }));
+			parts.push(tr(lang, "heroActive", { n: fmtActive(d.activeSeconds, lang) }));
+			if (d.cachedTokens > 0) {
+				const tip = tr(lang, "cachedTip");
+				const segs = [
+					tr(lang, "segIn", { v: fmtTokens(d.inputTokens) }),
+					tr(lang, "segOut", { v: fmtTokens(d.outputTokens) }),
+					"<span class=\"mk-tip\" tabindex=\"0\" aria-label=\"" + tip + "\" data-tip=\"" + tip + "\">" + tr(lang, "segCached", { v: fmtTokens(d.cachedTokens) }) + "<i aria-hidden=\"true\"> ⓘ</i></span>"
+				];
+				parts.push("<span style=\"white-space:nowrap\">" + segs.join(" · ") + "</span>");
+			} else if (hasData) parts.push("<span style=\"white-space:nowrap\">" + tr(lang, "segIn", { v: fmtTokens(d.inputTokens) }) + " · " + tr(lang, "segOut", { v: fmtTokens(d.outputTokens) }) + "</span>");
+			return parts;
+		}
+		function htmlHero(t, lang) {
 			const hasData = t.primaryTokens > 0 || t.requests > 0;
 			const big = hasData ? fmtTokens(t.primaryTokens) : "—";
-			const parts = [];
-			parts.push("<b>" + fmtTokens(t.requests) + "</b> requests");
-			parts.push("<b>" + fmtActive(t.activeSeconds) + "</b> active");
-			if (t.cachedTokens > 0) parts.push("<span style=\"white-space:nowrap\">" + fmtTokens(t.inputTokens) + " in · " + fmtTokens(t.outputTokens) + " out · +" + fmtTokens(t.cachedTokens) + " cached</span>");
-			else if (hasData) parts.push("<span style=\"white-space:nowrap\">" + fmtTokens(t.inputTokens) + " in · " + fmtTokens(t.outputTokens) + " out</span>");
+			const parts = breakdownParts(t, hasData, lang);
 			const chips = [];
 			const mult = t.vs7dAvgMultiple;
 			if (mult !== null && mult !== void 0) {
 				const up = mult >= 1;
-				chips.push("<span class=\"mk-chip\" data-tone=\"" + (up ? "up" : "") + "\">" + (up ? "↑ " : "↓ ") + mult.toFixed(1) + "× vs 7d avg</span>");
+				chips.push("<span class=\"mk-chip\" data-tone=\"" + (up ? "up" : "") + "\">" + (up ? "↑ " : "↓ ") + mult.toFixed(1) + "× " + tr(lang, "chipVs") + "</span>");
 			}
 			return [
 				"<div class=\"mk-hero\">",
-				"<div class=\"mk-klabel\">TODAY · UNCACHED TOKENS</div>",
+				"<div class=\"mk-klabel\">" + tr(lang, "todayLabel") + "</div>",
 				"<div class=\"mk-big\">" + big + "</div>",
 				"<div class=\"mk-sub\">" + parts.join(" &nbsp;·&nbsp; ") + "</div>",
 				"<div class=\"mk-chips\">" + chips.join("") + "$CHIPS</div>",
 				"</div>"
 			].join("");
 		}
-		function htmlModels(rows) {
-			if (!rows || rows.length === 0) return "";
-			const bars = rows.map((r) => [
+		function modelBars(rows) {
+			return rows.map((r) => [
 				"<div class=\"mk-mrow\">",
 				"<span class=\"mk-mname\">" + esc(r.provider) + " <i>" + esc(r.model) + "</i></span>",
 				"<span class=\"mk-pct\"><i class=\"mk-mtok\">" + fmtTokens(r.primaryTokens) + "</i>" + r.sharePct.toFixed(0) + "%</span>",
 				"</div>",
 				"<div class=\"mk-bar\"><i style=\"width:" + Math.min(100, r.sharePct) + "%\"></i></div>"
 			].join("")).join("");
+		}
+		function htmlModels(rows, lang) {
+			if (!rows || rows.length === 0) return "";
 			return [
-				"<div><div class=\"mk-h\"><b>Most used</b><span>" + rows.length + "</span></div>",
-				bars,
+				"<div><div class=\"mk-h\"><b>" + tr(lang, "mostUsed") + "</b></div>",
+				modelBars(rows),
 				"</div>"
 			].join("");
 		}
-		function htmlHistory(days) {
-			if (!days || days.length === 0 || days.every((d) => d.primaryTokens <= 0)) return "";
+		/** 快照历史条目；v1 快照无 history 时由 last7Days 退化（仅柱状，明细为零）。 */
+		function dayEntriesOf(snap) {
+			if (Array.isArray(snap.history) && snap.history.length > 0) return snap.history;
+			return (snap.last7Days ?? []).map((d) => ({
+				ymd: d.ymd,
+				primaryTokens: d.primaryTokens,
+				cachedTokens: 0,
+				requests: 0,
+				activeSeconds: 0
+			}));
+		}
+		function shortDate(ymd) {
+			return ymd.slice(5);
+		}
+		function weekdayOf(ymd, lang) {
+			return WEEKDAYS[lang][(/* @__PURE__ */ new Date(ymd + "T00:00:00Z")).getUTCDay()] ?? "";
+		}
+		function htmlSeg(lang, range) {
+			const btn = (key) => {
+				const label = key === "7d" ? tr(lang, "seg7d") : key === "30d" ? tr(lang, "seg30d") : tr(lang, "segDay");
+				return "<button type=\"button\" class=\"mk-segbtn\" data-madrank-range=\"" + key + "\" aria-pressed=\"" + (range === key ? "true" : "false") + "\">" + label + "</button>";
+			};
+			return "<div class=\"mk-seg\" role=\"group\">" + btn("7d") + btn("30d") + btn("day") + "</div>";
+		}
+		function htmlHistBars(days, lang) {
+			const cols = days.length;
 			const max = Math.max(1, ...days.map((d) => d.primaryTokens));
-			const weekday = [
-				"Sun",
-				"Mon",
-				"Tue",
-				"Wed",
-				"Thu",
-				"Fri",
-				"Sat"
-			];
-			const bars = days.map((d) => {
-				const dt = /* @__PURE__ */ new Date(d.ymd + "T00:00:00Z");
+			const dense = cols > 7;
+			const bars = days.map((d, i) => {
+				const label = dense ? (cols - 1 - i) % 7 === 0 ? shortDate(d.ymd) : "" : shortDate(d.ymd);
 				return [
 					"<div class=\"mk-hday\">",
-					"<div class=\"mk-hbar\"><i style=\"height:" + Math.round(d.primaryTokens / max * 100) + "%\"></i></div>",
-					"<div class=\"mk-hval\">" + (d.primaryTokens > 0 ? fmtTokens(d.primaryTokens) : "") + "</div>",
-					"<div class=\"mk-hname\">" + weekday[dt.getUTCDay()] + "</div>",
+					"<button type=\"button\" class=\"mk-hbar\" data-madrank-day=\"" + d.ymd + "\" title=\"" + d.ymd + " " + weekdayOf(d.ymd, lang) + " · " + fmtTokens(d.primaryTokens) + "\"><i style=\"height:" + Math.round(d.primaryTokens / max * 100) + "%\"></i></button>",
+					"<div class=\"mk-hval\">" + (!dense && d.primaryTokens > 0 ? fmtTokens(d.primaryTokens) : "") + "</div>",
+					"<div class=\"mk-hname\">" + label + "</div>",
 					"</div>"
 				].join("");
 			}).join("");
+			return "<div class=\"mk-hist\" data-cols=\"" + cols + "\">" + bars + "</div>";
+		}
+		function htmlDayView(snap, lang, selectedYmd, seg) {
+			const entries = dayEntriesOf(snap);
+			const fallback = snap.ymd ?? entries[entries.length - 1]?.ymd ?? "";
+			const ymd = selectedYmd !== void 0 && entries.some((e) => e.ymd === selectedYmd) ? selectedYmd : fallback;
+			const e = entries.find((x) => x.ymd === ymd);
+			const hasData = (e?.requests ?? 0) > 0 || (e?.primaryTokens ?? 0) > 0;
+			const big = hasData && e ? fmtTokens(e.primaryTokens) : "—";
+			const parts = e ? breakdownParts({
+				requests: e.requests,
+				activeSeconds: e.activeSeconds,
+				inputTokens: e.inputTokens ?? 0,
+				outputTokens: e.outputTokens ?? 0,
+				cachedTokens: e.cachedTokens
+			}, hasData, lang) : [];
 			return [
-				"<div><div class=\"mk-h\"><b>Last 7 days</b><span>" + fmtTokens(days.reduce((a, d) => a + d.primaryTokens, 0)) + "</span></div>",
-				"<div class=\"mk-hist\">",
-				bars,
-				"</div></div>"
+				"<div class=\"mk-dayview\">",
+				"<div class=\"mk-h\"><b>" + tr(lang, "dayHeading", {
+					w: weekdayOf(ymd, lang),
+					d: ymd
+				}) + "</b>",
+				"<span class=\"mk-hspring\"></span>",
+				seg,
+				"</div>",
+				"<div class=\"mk-big mk-daysize\">" + big + "</div>",
+				parts.length > 0 ? "<div class=\"mk-sub\">" + parts.join(" &nbsp;·&nbsp; ") + "</div>" : "",
+				e?.topModels && e.topModels.length > 0 ? modelBars(e.topModels) : "",
+				"</div>"
 			].join("");
 		}
-		function htmlSync(enabled) {
-			if (enabled) return [
-				"<div class=\"mk-sync\">",
-				"<p class=\"mk-fine\">Sharing daily token aggregates anonymously · anonId • <span style=\"font-family:var(--ds-font-family-code)\">••••</span>. Never prompts or responses.</p>",
-				"<button type=\"button\" data-madrank-disable>Leave global ranking</button>",
+		function htmlHistorySection(snap, lang, range, selectedYmd) {
+			const entries = dayEntriesOf(snap);
+			if (entries.length === 0 || entries.every((d) => d.primaryTokens <= 0)) return "";
+			const hasHistory = Array.isArray(snap.history) && snap.history.length > 0;
+			const seg = hasHistory ? htmlSeg(lang, range) : "";
+			if (range === "day" && hasHistory) return htmlDayView(snap, lang, selectedYmd, seg);
+			const n = range === "30d" && hasHistory ? Math.min(30, entries.length) : Math.min(7, entries.length);
+			const days = entries.slice(-n);
+			const total = days.reduce((a, d) => a + d.primaryTokens, 0);
+			return [
+				"<div>",
+				"<div class=\"mk-h\"><b>" + tr(lang, range === "30d" && hasHistory ? "last30" : "last7") + "</b><span>" + fmtTokens(total) + "</span><span class=\"mk-hspring\"></span>" + seg + "</div>",
+				htmlHistBars(days, lang),
 				"</div>"
 			].join("");
+		}
+		/** Local 态（状态 A）：单句承诺 + 官方形制 Join CTA。 */
+		function htmlJoinCta(lang) {
 			return [
 				"<div class=\"mk-sync\">",
-				"<p class=\"mk-fine\">Optional: share <b>daily aggregates only</b> (token counts, model names).",
-				" Never prompts, responses, or files. Off by default.</p>",
-				"<button type=\"button\" class=\"mk-primary\" data-madrank-join>Join global ranking</button>",
+				"<p class=\"mk-fine\">" + tr(lang, "joinFine") + "</p>",
+				"<button type=\"button\" class=\"mk-primary\" data-madrank-join>" + tr(lang, "joinCta") + "</button>",
 				"</div>"
 			].join("");
+		}
+		/**
+		* Joined 态（状态 B）：Your global rank 块替换大 CTA。
+		* 有排名：#N + TOP x% + 7-day tokens；未出排名：诚实空态（等首个日级 sync）。
+		* 大按钮退场 \u2192 View race 链接 + 轻量 Leave（panel.ts 仍按 data-madrank-disable 绑定）。
+		*/
+		function htmlJoined(hasRank, global, lang) {
+			const rankBlock = hasRank ? [
+				"<div class=\"mk-rankrow\">",
+				"<span class=\"mk-big\">#" + global.rank.toLocaleString("en-US") + "</span>",
+				"<span class=\"mk-chip\" data-tone=\"hot\">" + tr(lang, "topChip", { x: global.topPct.toFixed(1) }) + "</span>",
+				"</div>",
+				"<div class=\"mk-sub\"><span class=\"mk-rlab\">" + tr(lang, "race7dLabel") + "</span><b>" + fmtTokens(global.race7d) + "</b></div>"
+			].join("") : "<p class=\"mk-fine\">" + tr(lang, "joinedPending") + "</p>";
+			return [
+				"<div class=\"mk-sync\">",
+				"<div class=\"mk-h\"><b>" + tr(lang, "yourRank") + "</b></div>",
+				rankBlock,
+				"<p class=\"mk-fine\">" + tr(lang, "shareFine", { mask: ANON_MASK }) + "</p>",
+				"<div class=\"mk-actions\">",
+				"<a class=\"mk-race\" href=\"https://madrank.app/race\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
+				"<button type=\"button\" class=\"mk-quiet\" data-madrank-disable>" + tr(lang, "leave") + "</button>",
+				"</div>",
+				"</div>"
+			].join("");
+		}
+		function htmlSync(enabled, snap, lang) {
+			if (!enabled) return htmlJoinCta(lang);
+			const g = snap.global;
+			return htmlJoined(g != null, g ?? {
+				rank: 0,
+				topPct: 0,
+				race7d: 0
+			}, lang);
 		}
 		/**
 		* 纯渲染：卡片 HTML（React 壳与预览工具共用）。
@@ -470,44 +747,39 @@ window.__ModuleLoader__.load({
 		*/
 		function renderCardHtml(snap, enabled, opts = { style: false }) {
 			ensureCardStyles();
+			const lang = resolveLang(opts.locale);
 			const t = snap.today;
 			const chips = [];
 			const streak = snap.streakDays ?? 0;
-			if (!enabled && streak > 1) chips.push("<span class=\"mk-chip\">" + streak + "-day streak</span>");
-			const hero = t ? htmlHero(t).replace("$CHIPS", chips.join("")) : "";
+			if (!enabled && streak > 1) chips.push("<span class=\"mk-chip\">" + tr(lang, "chipStreak", { n: streak }) + "</span>");
+			const hero = t ? htmlHero(t, lang).replace("$CHIPS", chips.join("")) : "";
 			const heroBlock = t ? hero : [
 				"<div class=\"mk-hero\">",
-				"<div class=\"mk-klabel\">TODAY</div>",
+				"<div class=\"mk-klabel\">" + tr(lang, "todayEmpty") + "</div>",
 				"<div class=\"mk-big\">—</div>",
-				"<p class=\"mk-fine\" style=\"margin:0\">No usage recorded yet. Numbers appear after your next AI turn.</p>",
+				"<p class=\"mk-fine\" style=\"margin:0\">" + tr(lang, "noUsage") + "</p>",
 				"</div>"
 			].join("");
-			const rank = enabled && snap.global ? [
-				"<div><div class=\"mk-h\"><b>Global rank</b></div>",
-				"<div class=\"mk-big\">#" + snap.global.rank.toLocaleString("en-US") + "</div>",
-				"<div class=\"mk-sub\">top " + snap.global.topPct.toFixed(1) + "% · " + fmtTokens(snap.global.race7d) + " tokens / 7d</div></div>"
-			].join("") : "";
 			const updated = new Date(snap.generatedAt ?? Date.now());
 			const hhmm = String(updated.getUTCHours()).padStart(2, "0") + ":" + String(updated.getUTCMinutes()).padStart(2, "0");
 			const lg = opts.size === "lg";
-			const mid = rank + htmlModels(snap.topModels);
-			const midBlock = lg && mid !== "" ? "<div class=\"mk-cols\">" + mid + "</div>" : mid;
+			const midBlock = htmlModels(snap.topModels, lang);
 			return [
 				opts.style === false ? "" : "<style>" + CSS + LG_CSS + "</style>",
 				"<div class=\"madrank-card" + (lg ? " madrank-card-lg" : "") + "\">",
 				"<div class=\"mk-head\">",
 				"<span class=\"mk-mark\" aria-hidden=\"true\">M</span>",
-				"<h3>MADRank Usage</h3>",
+				"<h3>" + tr(lang, "cardTitle") + "</h3>",
 				"<span class=\"mk-headspacer\"></span>",
 				"<span class=\"mk-tag\" data-on=\"" + (enabled ? "true" : "false") + "\" role=\"status\">",
-				"<span class=\"mk-dot\"></span>" + (enabled ? "Sync on" : "Local only"),
+				"<span class=\"mk-dot\"></span>" + tr(lang, enabled ? "pillOn" : "pillLocal"),
 				"</span>",
 				"</div>",
 				heroBlock,
 				midBlock,
-				htmlHistory(snap.last7Days),
-				htmlSync(enabled),
-				"<div class=\"mk-foot\"><span>UTC " + hhmm + "</span><span>private by default</span></div>",
+				htmlHistorySection(snap, lang, opts.range ?? "7d", opts.selectedYmd),
+				htmlSync(enabled, snap, lang),
+				"<div class=\"mk-foot\"><span>" + tr(lang, "footerUpdated", { t: hhmm }) + "</span></div>",
 				"</div>"
 			].join("");
 		}
@@ -547,6 +819,14 @@ window.__ModuleLoader__.load({
 				}
 			};
 		})();
+		let activeLocale;
+		/** 由 client/index.ts 的 apply() 装配：喂入宿主 locale 面的 active LocaleId。 */
+		function setActiveLocale(raw) {
+			activeLocale = raw;
+		}
+		function cardLang() {
+			return resolveLang(activeLocale);
+		}
 		function useTickSource(subscribe) {
 			const [v, setV] = (0, react.useState)(0);
 			(0, react.useEffect)(() => subscribe(() => setV((x) => x + 1)), [subscribe]);
@@ -556,6 +836,8 @@ window.__ModuleLoader__.load({
 			const { scope, onClose, anchored } = props;
 			const tick = useTickSource(dataTick.subscribe);
 			const [, force] = (0, react.useState)(0);
+			const [range, setRange] = (0, react.useState)("7d");
+			const [selYmd, setSelYmd] = (0, react.useState)(void 0);
 			const ref = (0, react.useRef)(null);
 			let html;
 			try {
@@ -564,10 +846,19 @@ window.__ModuleLoader__.load({
 				html = renderCardHtml({
 					...base,
 					...fixture
-				}, scopeEnabled(scope), anchored ? { size: "lg" } : {});
+				}, scopeEnabled(scope), anchored ? {
+					size: "lg",
+					locale: activeLocale,
+					range,
+					selectedYmd: selYmd
+				} : {
+					locale: activeLocale,
+					range,
+					selectedYmd: selYmd
+				});
 			} catch (e) {
 				console.warn("[madrank] card render fallback", e);
-				html = "<div class=\"madrank-card\"><h3 style=\"margin:0\">MADRank Usage</h3><section class=\"mod\"><div class=\"muted\">Card unavailable this tick.</div></section></div>";
+				html = "<div class=\"madrank-card\"><h3 style=\"margin:0\">" + tr(cardLang(), "cardTitle") + "</h3><section class=\"mod\"><div class=\"muted\">Card unavailable this tick.</div></section></div>";
 			}
 			(0, react.useEffect)(() => {
 				const rootEl = ref.current;
@@ -584,11 +875,44 @@ window.__ModuleLoader__.load({
 				};
 				join?.addEventListener("click", onJoin);
 				leave?.addEventListener("click", onLeave);
+				const snap = dataTick.get();
+				const fallbackDay = () => {
+					const hist = snap.history;
+					if (hist && hist.length > 0) {
+						for (let i = hist.length - 1; i >= 0; i--) if ((hist[i]?.primaryTokens ?? 0) > 0) return hist[i].ymd;
+					}
+					return snap.ymd ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+				};
+				const onRange = (ev) => {
+					const v = ev.currentTarget?.getAttribute("data-madrank-range");
+					if (v === "7d" || v === "30d" || v === "day") {
+						setRange(v);
+						if (v === "day") setSelYmd(selYmd ?? fallbackDay());
+					}
+				};
+				const onDayBar = (ev) => {
+					const ymd = ev.currentTarget?.getAttribute("data-madrank-day");
+					if (ymd) {
+						setSelYmd(ymd);
+						setRange("day");
+					}
+				};
+				const rangeBtns = Array.from(rootEl.querySelectorAll("[data-madrank-range]"));
+				const dayBars = Array.from(rootEl.querySelectorAll("[data-madrank-day]"));
+				rangeBtns.forEach((b) => b.addEventListener("click", onRange));
+				dayBars.forEach((b) => b.addEventListener("click", onDayBar));
 				return () => {
 					join?.removeEventListener("click", onJoin);
 					leave?.removeEventListener("click", onLeave);
+					rangeBtns.forEach((b) => b.removeEventListener("click", onRange));
+					dayBars.forEach((b) => b.removeEventListener("click", onDayBar));
 				};
-			}, [scope, tick]);
+			}, [
+				scope,
+				tick,
+				range,
+				selYmd
+			]);
 			(0, react.useEffect)(() => {
 				if (!anchored || !onClose) return;
 				const onKey = (e) => {
@@ -621,7 +945,7 @@ window.__ModuleLoader__.load({
 					key: "madrank-modal-overlay",
 					role: "dialog",
 					"aria-modal": "true",
-					"aria-label": "MADRank Usage",
+					"aria-label": tr(cardLang(), "cardTitle"),
 					style: {
 						position: "fixed",
 						top: "0",
@@ -702,8 +1026,8 @@ window.__ModuleLoader__.load({
 			} }, (0, react.createElement)("button", {
 				type: "button",
 				onClick: () => setOpen((o) => !o),
-				title: "MADRank Usage",
-				"aria-label": "MADRank Usage",
+				title: tr(cardLang(), "cardTitle"),
+				"aria-label": tr(cardLang(), "cardTitle"),
 				style: {
 					display: "flex",
 					alignItems: "center",
@@ -783,6 +1107,7 @@ window.__ModuleLoader__.load({
 					topModels: d.topModels,
 					streakDays: d.streak,
 					last7Days: d.last7,
+					history: d.history,
 					global: null
 				};
 			} catch (e) {
@@ -804,6 +1129,21 @@ window.__ModuleLoader__.load({
 			};
 			refresh();
 			feed?.subscribe(refresh);
+			const locale = ctx.locale;
+			const safeActive = () => {
+				try {
+					return locale?.getSnapshot?.()?.active;
+				} catch {
+					return;
+				}
+			};
+			setActiveLocale(safeActive());
+			try {
+				locale?.subscribe?.(() => {
+					setActiveLocale(safeActive());
+					refresh();
+				});
+			} catch {}
 			slots.inject("settings.plugin.item", () => {
 				slots.register({
 					name: "settings.plugin.item",

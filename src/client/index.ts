@@ -19,8 +19,9 @@
  */
 
 import { createElement } from 'react'
+import type { LocaleFaceLike } from './card-html.ts'
 import { cardDataFromList } from './card-data.ts'
-import { CardShell, dataTick, registerFooterEntry } from './panel.ts'
+import { CardShell, dataTick, registerFooterEntry, setActiveLocale } from './panel.ts'
 
 export const SETTINGS_NS = 'madrank-usage'
 
@@ -45,6 +46,7 @@ export interface ClientCtxLike {
   slots?: import('./card-html.ts').SlotsLike
   settingsScope?: { bind(opts: { namespace: string }): import('./card-html.ts').SettingsScopeLike }
   sessions?: SessionsFaceLike
+  locale?: LocaleFaceLike
 }
 
 function pullFrom(feed: SessionsFaceLike['list'] | undefined): Record<string, unknown> {
@@ -56,6 +58,7 @@ function pullFrom(feed: SessionsFaceLike['list'] | undefined): Record<string, un
       topModels: d.topModels,
       streakDays: d.streak,
       last7Days: d.last7,
+      history: d.history,
       global: null,
     }
   } catch (e) {
@@ -79,6 +82,17 @@ export function apply(ctx: ClientCtxLike): void {
   }
   refresh()
   feed?.subscribe(refresh)
+
+  // ── 语言：跟随宿主系统设置（ctx.locale.active；切换经 subscribe 推动整体重渲染）──
+  // inject 声明过的 'locale' 面在此消费；缺席/异常一律回退 en（官方 FALLBACK_LOCALE 语义）。
+  const locale = ctx.locale
+  const safeActive = (): string | undefined => {
+    try { return locale?.getSnapshot?.()?.active } catch { return undefined }
+  }
+  setActiveLocale(safeActive())
+  try {
+    locale?.subscribe?.(() => { setActiveLocale(safeActive()); refresh() })
+  } catch { /* isolated */ }
 
   // 1) Settings 卡片（plugin 配置分区；keyed：namespace 配对）
   slots.inject('settings.plugin.item', () => {

@@ -7,8 +7,9 @@
  * 所有聚合口径复用 src/stats.ts / src/caliber.ts（本包内导入合规）。
  */
 
-import { lastNDays, streakDays, topModels, todayCard } from '../stats.ts'
+import { dayDetail, HISTORY_WINDOW_DAYS, lastNDays, streakDays, topModels, todayCard } from '../stats.ts'
 import type { DayAggregate } from '../stats.ts'
+import type { CardDayEntry } from './card-html.ts'
 import type { DayView, ModelBuckets, UsageView } from '../fold.ts'
 
 /** 最小结构镜像：客户端不依赖 DSH 包（bundle 纯净度门禁）。 */
@@ -81,6 +82,14 @@ export function mergeViews(views: UsageView[]): DayAggregate {
   return agg
 }
 
+/** 卡片历史窗口（30 天视图 + 单日回看；card-html 的 history 消费口径）。 */
+function buildHistory(agg: DayAggregate, nowMs: number): CardDayEntry[] {
+  return lastNDays(agg, nowMs, HISTORY_WINDOW_DAYS).map((d) => ({
+    ...dayDetail(agg, d.ymd),
+    topModels: topModels(agg, d.ymd),
+  }))
+}
+
 /** 列表快照 → 卡片展示所需的完整口径集（不含 global：本地版恒无排名）。 */
 export function cardDataFromList(
   snap: SessionsListSnapshotLike | undefined,
@@ -90,6 +99,7 @@ export function cardDataFromList(
   topModels: ReturnType<typeof topModels>
   streak: number
   last7: Array<{ ymd: string; primaryTokens: number }>
+  history: CardDayEntry[]
 } {
   const agg = mergeViews(extractViews(snap))
   return {
@@ -97,5 +107,6 @@ export function cardDataFromList(
     topModels: topModels(agg, new Date(nowMs).toISOString().slice(0, 10)),
     streak: streakDays(agg, nowMs),
     last7: lastNDays(agg, nowMs, 7).map(d => ({ ymd: d.ymd, primaryTokens: d.primaryTokens })),
+    history: buildHistory(agg, nowMs),
   }
 }

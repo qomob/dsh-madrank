@@ -4,7 +4,7 @@
  * 口径经 caliber.ts/stats.ts，本模块只做形状装配。
  */
 
-import { lastNDays, streakDays, todayCard, topModels } from './stats.ts'
+import { dayDetail, HISTORY_WINDOW_DAYS, lastNDays, streakDays, todayCard, topModels } from './stats.ts'
 import type { UsageStore } from './store.ts'
 
 export interface CardModelRow {
@@ -17,7 +17,7 @@ export interface CardModelRow {
 /** 与 src/client/index.ts 的 CardSnapshot 保持同构（host 侧权威定义）。 */
 export interface MadrankCardSnapshot {
   schema: 'madrank.card-snapshot'
-  version: 1
+  version: 2
   ymd: string
   today: {
     primaryTokens: number
@@ -31,6 +31,17 @@ export interface MadrankCardSnapshot {
   topModels: CardModelRow[]
   streakDays: number
   last7Days: Array<{ ymd: string; primaryTokens: number }>
+  /** 近 60 天日级明细（30 天视图/单日回看；与 client CardSnapshot.history 同构）。 */
+  history: Array<{
+    ymd: string
+    primaryTokens: number
+    cachedTokens: number
+    requests: number
+    activeSeconds: number
+    inputTokens: number
+    outputTokens: number
+    topModels: CardModelRow[]
+  }>
   /** sync 尚未接入云端排名 —— 本地版恒 null（诚实空态）。 */
   global: null
   anonIdSuffix: string
@@ -47,7 +58,7 @@ export function buildCardSnapshot(
 
   return {
     schema: 'madrank.card-snapshot',
-    version: 1,
+    version: 2,
     ymd: t.ymd,
     today: {
       primaryTokens: t.primaryTokens,
@@ -62,6 +73,10 @@ export function buildCardSnapshot(
     streakDays: streakDays(aggregate, nowMs),
     last7Days: lastNDays(aggregate, nowMs, 7)
       .map(d => ({ ymd: d.ymd, primaryTokens: d.primaryTokens })),
+    history: lastNDays(aggregate, nowMs, HISTORY_WINDOW_DAYS).map(d => {
+      const det = dayDetail(aggregate, d.ymd)
+      return { ...det, topModels: topModels(aggregate, d.ymd) }
+    }),
     global: null,
     anonIdSuffix: getAnonId().slice(-4),
     generatedAt: nowMs,

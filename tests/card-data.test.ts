@@ -80,6 +80,11 @@ describe('cardDataFromList（端到端口径）', () => {
     expect(data.topModels[0]!.modelKey).toBe('zhipu/glm-5.3-flash')
     expect(data.streak).toBe(2)
     expect(data.last7.at(-1)!.primaryTokens).toBe(data.today.primaryTokens)
+    // 历史窗口（60 天）：末位=今天且与 TODAY 同口径，含单日模型份额
+    expect(data.history).toHaveLength(60)
+    expect(data.history.at(-1)!.ymd).toBe('2026-08-27')
+    expect(data.history.at(-1)!.primaryTokens).toBe(data.today.primaryTokens)
+    expect(data.history.at(-1)!.topModels![0]!.model).toBe('glm-5.3-flash')
   })
 
   it('空快照 → 全零诚实空态而非 NaN', () => {
@@ -87,5 +92,6 @@ describe('cardDataFromList（端到端口径）', () => {
     expect(data.today.primaryTokens).toBe(0)
     expect(data.today.vs7dAvgMultiple).toBeNull()
     expect(data.streak).toBe(0)
+    expect(data.history.every((d) => d.primaryTokens === 0)).toBe(true)
   })
 })

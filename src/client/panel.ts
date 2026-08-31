@@ -18,6 +18,7 @@ import type { ReactElement, ReactPortal } from 'react'
 import { createPortal } from 'react-dom'
 import { renderCardHtml, scopeEnabled } from './card-html.ts'
 import type { CardSnapshot, SettingsScopeLike } from './card-html.ts'
+import { resolveLang, tr, type Lang } from './i18n.ts'
 import { cardDataFromList } from './card-data.ts'
 
 // ── 微观共享状态：数据节拍 ──────────────────────────────────
@@ -39,6 +40,19 @@ export const dataTick = (() => {
   }
 })()
 
+// ── 语言：跟随宿主 ctx.locale（只读 active + subscribe；变化经 dataTick 重渲染） ──
+
+let activeLocale: string | undefined
+
+/** 由 client/index.ts 的 apply() 装配：喂入宿主 locale 面的 active LocaleId。 */
+export function setActiveLocale(raw: string | undefined): void {
+  activeLocale = raw
+}
+
+function cardLang(): Lang {
+  return resolveLang(activeLocale)
+}
+
 function useTickSource(subscribe: (fn: () => void) => () => void): number {
   const [v, setV] = useState(0)
   useEffect(() => subscribe(() => setV(x => x + 1)), [subscribe])
@@ -57,6 +71,9 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
   const { scope, onClose, anchored } = props
   const tick = useTickSource(dataTick.subscribe)
   const [, force] = useState(0)
+  // 历史范围（会话态视图偏好，不写 settings）：7D 直方 / 30D 密排 / 单日明细
+  const [range, setRange] = useState<'7d' | '30d' | 'day'>('7d')
+  const [selYmd, setSelYmd] = useState<string | undefined>(undefined)
   const ref = useRef<HTMLDivElement | null>(null)
 
   // 组装快照：feed 实时数据优先，window fixture 覆盖口其次。
@@ -67,10 +84,10 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const fixture = (typeof window !== 'undefined' ? window.__MADRANK_CARD_DATA__ : undefined) ?? {}
     const snap: CardSnapshot = { ...base, ...fixture }
     // 模态容器大：卡片用 lg 变体（解锁 320px 固定宽 + 双栏中段）
-    html = renderCardHtml(snap, scopeEnabled(scope), anchored ? { size: 'lg' } : {})
+    html = renderCardHtml(snap, scopeEnabled(scope), anchored ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd } : { locale: activeLocale, range, selectedYmd: selYmd })
   } catch (e) {
     console.warn('[madrank] card render fallback', e)
-    html = '<div class="madrank-card"><h3 style="margin:0">MADRank Usage</h3>' +
+    html = '<div class="madrank-card"><h3 style="margin:0">' + tr(cardLang(), 'cardTitle') + '</h3>' +
       '<section class="mod"><div class="muted">Card unavailable this tick.</div></section></div>'
   }
 
@@ -84,11 +101,40 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const onLeave = (): void => { void Promise.resolve(scope.unset('enabled')).catch(() => {}); force(x => x + 1) }
     join?.addEventListener('click', onJoin)
     leave?.addEventListener('click', onLeave)
+
+    // 范围切换 + 直方柱点击进入单日（同 join/leave 的 data-attr 绑定模式）
+    const snap = dataTick.get()
+    const fallbackDay = (): string => {
+      const hist = snap.history
+      if (hist && hist.length > 0) {
+        for (let i = hist.length - 1; i >= 0; i--) {
+          if ((hist[i]?.primaryTokens ?? 0) > 0) return hist[i]!.ymd
+        }
+      }
+      return snap.ymd ?? new Date().toISOString().slice(0, 10)
+    }
+    const onRange = (ev: Event): void => {
+      const v = (ev.currentTarget as HTMLElement | null)?.getAttribute('data-madrank-range')
+      if (v === '7d' || v === '30d' || v === 'day') {
+        setRange(v)
+        if (v === 'day') setSelYmd(selYmd ?? fallbackDay())
+      }
+    }
+    const onDayBar = (ev: Event): void => {
+      const ymd = (ev.currentTarget as HTMLElement | null)?.getAttribute('data-madrank-day')
+      if (ymd) { setSelYmd(ymd); setRange('day') }
+    }
+    const rangeBtns = Array.from(rootEl.querySelectorAll('[data-madrank-range]'))
+    const dayBars = Array.from(rootEl.querySelectorAll('[data-madrank-day]'))
+    rangeBtns.forEach((b) => b.addEventListener('click', onRange))
+    dayBars.forEach((b) => b.addEventListener('click', onDayBar))
     return () => {
       join?.removeEventListener('click', onJoin)
       leave?.removeEventListener('click', onLeave)
+      rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
+      dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
     }
-  }, [scope, tick])
+  }, [scope, tick, range, selYmd])
 
   // Escape 关闭（模态态）
   useEffect(() => {
@@ -126,7 +172,7 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
         key: 'madrank-modal-overlay',
         role: 'dialog',
         'aria-modal': 'true',
-        'aria-label': 'MADRank Usage',
+        'aria-label': tr(cardLang(), 'cardTitle'),
         style: {
           position: 'fixed',
           top: '0', right: '0', bottom: '0', left: '0',
@@ -223,8 +269,8 @@ export function MadrankFooterCell(props: FooterCellProps): ReturnType<typeof cre
     createElement('button', {
       type: 'button',
       onClick: () => setOpen(o => !o),
-      title: 'MADRank Usage',
-      'aria-label': 'MADRank Usage',
+      title: tr(cardLang(), 'cardTitle'),
+      'aria-label': tr(cardLang(), 'cardTitle'),
       style: {
         display: 'flex',
         alignItems: 'center',
