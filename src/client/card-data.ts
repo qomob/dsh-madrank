@@ -9,7 +9,9 @@
 
 import { dayDetail, HISTORY_WINDOW_DAYS, lastNDays, streakDays, topModels, todayCard } from '../stats.ts'
 import type { DayAggregate } from '../stats.ts'
-import type { CardDayEntry } from './card-html.ts'
+import { cardGlobalFromRecord, parseGlobalRecord, raceUrlFromEndpoint } from '../global-rank.ts'
+import type { CardGlobal } from '../global-rank.ts'
+import type { CardDayEntry, CardSnapshot } from './card-html.ts'
 import type { DayView, ModelBuckets, UsageView } from '../fold.ts'
 
 /** 最小结构镜像：客户端不依赖 DSH 包（bundle 纯净度门禁）。 */
@@ -108,5 +110,63 @@ export function cardDataFromList(
     streak: streakDays(agg, nowMs),
     last7: lastNDays(agg, nowMs, 7).map(d => ({ ymd: d.ymd, primaryTokens: d.primaryTokens })),
     history: buildHistory(agg, nowMs),
+  }
+}
+
+/**
+ * settings wire 段窄化（SettingsScopeSpec.decode）。
+ * 显式 decode 使客户端跳过宿主 schemastery 默认校验、原样消费 describe 的
+ * value——这是排名走 settings mirror 的前提（resolve 注入的 global 不是
+ * schema 字段，默认校验不认识它）。坏形状一律降级：enabled=false、global=null。
+ */
+export function decodeSettingsSection(section: unknown): {
+  enabled: boolean
+  endpoint: string | undefined
+  global: CardGlobal | null
+} | undefined {
+  if (typeof section !== 'object' || section === null || Array.isArray(section)) return undefined
+  const s = section as Record<string, unknown>
+  return {
+    enabled: s['enabled'] === true,
+    endpoint: typeof s['endpoint'] === 'string' ? s['endpoint'] : undefined,
+    global: decodeWireGlobal(s['global']),
+  }
+}
+
+/**
+ * wire 段 global 的双形状解码（2026-09-01 第六坑）。
+ * 宿主 resolve 注入的已是 CardGlobal（race7d；index.ts callable 出口），
+ * 而 parseGlobalRecord 只认 GlobalRankRecord（total/endpoint）——单测用
+ * 错误形状喂 decode 曾致全绿假象，真实 rank 首次点亮当日实锤。
+ */
+function decodeWireGlobal(raw: unknown): CardGlobal | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+  if (num(r['rank']) && num(r['topPct']) && num(r['race7d'])) {
+    return {
+      rank: r['rank'],
+      topPct: r['topPct'],
+      race7d: r['race7d'],
+      participants: num(r['participants']) ? r['participants'] : undefined,
+      updatedAt: num(r['updatedAt']) ? r['updatedAt'] : undefined,
+    }
+  }
+  return cardGlobalFromRecord(parseGlobalRecord(raw))
+}
+
+/**
+ * 卡片 global / View race 链接组装（优先级锁定）：
+ * fixture（window.__MADRANK_CARD_DATA__，测试/调试覆盖口）
+ *   > settings mirror（宿主 resolve 注入的唯一排名缝）> null（诚实空态）。
+ * 投影 feed 不携带排名——usage 语义与 gamification 永不互串。
+ */
+export function composeGlobalView(
+  fixture: Partial<CardSnapshot> | undefined,
+  scope: { enabled?: boolean; endpoint?: string; global?: CardGlobal | null } | undefined,
+): { global: CardGlobal | null; raceUrl: string } {
+  return {
+    global: fixture?.global !== undefined ? fixture.global ?? null : scope?.global ?? null,
+    raceUrl: raceUrlFromEndpoint(scope?.endpoint),
   }
 }

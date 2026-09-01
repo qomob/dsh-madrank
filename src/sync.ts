@@ -13,6 +13,8 @@
 
 import type { UsageStore } from './store.ts'
 import type { MadrankSettings } from './compat.ts'
+import { parseIngestRace } from './global-rank.ts'
+import type { IngestRaceView } from './global-rank.ts'
 
 export interface AnonIdProvider {
   (): string
@@ -36,7 +38,11 @@ export function yesterdayYmd(now = Date.now()): string {
  */
 export const USAGE_SCHEMA_VERSION = 1
 
-/** 组装某一天的 payload（远端 schema 的唯一来源）。 */
+/**
+ * 组装某一天的 payload（远端 schema 的唯一来源）。
+ * ⚠️ wire 形状以服务端 lib/usage/protocol.ts 冻结契约为准：days[].models 是
+ * 「模型名 → 桶」的 OBJECT 映射（P0-2 真实联调抓出的数组形状 400 BAD_MODELS）。
+ */
 export function composeDayPayload(
   anonId: string,
   ymd: string,
@@ -49,41 +55,46 @@ export function composeDayPayload(
   schemaVersion: typeof USAGE_SCHEMA_VERSION
   days: Array<{
     date: string
-    models: Array<{ model: string; input: number; output: number; cacheRead: number; requests: number }>
+    models: Record<string, { input: number; output: number; cacheRead: number; requests: number }>
   }>
 } {
+  const models: Record<string, { input: number; output: number; cacheRead: number; requests: number }> = {}
+  for (const [model, b] of Object.entries(dayModels)) {
+    models[model] = {
+      input: b.inputTokens + b.cacheWriteTokens, // 计费口径：cache-write 属输入侧
+      cacheRead: b.cacheReadTokens,
+      output: b.outputTokens,
+      requests: b.requests,
+    }
+  }
   return {
     anonId,
     schemaVersion: USAGE_SCHEMA_VERSION,
-    days: [{
-      date: ymd,
-      models: Object.entries(dayModels).map(([model, b]) => ({
-        model,
-        input: b.inputTokens + b.cacheWriteTokens, // 计费口径：cache-write 属输入侧
-        cacheRead: b.cacheReadTokens,
-        output: b.outputTokens,
-        requests: b.requests,
-      })),
-    }],
+    days: [{ date: ymd, models }],
   }
 }
 
 /**
  * 同步循环的一步：找出所有"有数据 + 未上传 + 已经是昨天或更早"的日期并逐个上传。
  * 返回各日结果。调用方（宿主）节流触发（≤1 次/分钟），无需更细的调度器。
+ *
+ * onRace：服务端每个成功响应都携带按本机 anonId 重算的 7 日 race（Ranking
+ * Projection）。这里宽容解析后逐次上抛（多日回传时最后一次即最完整状态）；
+ * 解析失败只影响排名点亮，绝不影响上传结果判定。
  */
 export async function syncPendingDays(
   store: UsageStore,
   settings: MadrankSettings,
   getAnonId: AnonIdProvider,
   fetchImpl: typeof fetch,
+  onRace?: (race: IngestRaceView) => void,
 ): Promise<UploadOutcome[]> {
   if (!settings.enabled || !settings.endpoint) return []
 
   const aggregated = store.aggregateDays()
   const dates = Object.keys(aggregated)
     .filter((d) => d <= yesterdayYmd())
-    .filter((d) => !store.isUploaded(d))
+    .filter((d) => !store.isUploaded(d, settings.endpoint))
     .sort()
 
   const outcomes: UploadOutcome[] = []
@@ -97,6 +108,16 @@ export async function syncPendingDays(
       if (res.ok) {
         store.markUploaded(date, settings.endpoint)
         outcomes.push({ date, ok: true })
+        if (onRace) {
+          try {
+            // ingest 响应契约：{ ok, results, race }（route.ts）——race 段才是榜面
+            const body = (await res.json()) as { race?: unknown }
+            const race = parseIngestRace(body?.race)
+            if (race) onRace(race)
+          } catch {
+            // 展示数据缺位不阻断同步（幂等标记已落）
+          }
+        }
       } else {
         outcomes.push({ date, ok: false, detail: 'http ' + res.status })
       }

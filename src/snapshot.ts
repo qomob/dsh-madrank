@@ -6,6 +6,7 @@
 
 import { dayDetail, HISTORY_WINDOW_DAYS, lastNDays, streakDays, todayCard, topModels } from './stats.ts'
 import type { UsageStore } from './store.ts'
+import type { CardGlobal } from './global-rank.ts'
 
 export interface CardModelRow {
   provider: string
@@ -17,7 +18,8 @@ export interface CardModelRow {
 /** 与 src/client/index.ts 的 CardSnapshot 保持同构（host 侧权威定义）。 */
 export interface MadrankCardSnapshot {
   schema: 'madrank.card-snapshot'
-  version: 2
+  /** v3：新增 global（同步链路捕获的全球排名；消费端对缺席字段宽容）。 */
+  version: 3
   ymd: string
   today: {
     primaryTokens: number
@@ -42,8 +44,8 @@ export interface MadrankCardSnapshot {
     outputTokens: number
     topModels: CardModelRow[]
   }>
-  /** sync 尚未接入云端排名 —— 本地版恒 null（诚实空态）。 */
-  global: null
+  /** Join 后的全球排名（同步链路捕获）；Local 态 / 尚无完整统计周期 → null（诚实空态）。 */
+  global: CardGlobal | null
   anonIdSuffix: string
   generatedAt: number
 }
@@ -52,13 +54,14 @@ export function buildCardSnapshot(
   store: UsageStore,
   getAnonId: () => string,
   nowMs: number,
+  global: CardGlobal | null = null,
 ): MadrankCardSnapshot {
   const aggregate = store.aggregateDays()
   const t = todayCard(aggregate, nowMs)
 
   return {
     schema: 'madrank.card-snapshot',
-    version: 2,
+    version: 3,
     ymd: t.ymd,
     today: {
       primaryTokens: t.primaryTokens,
@@ -77,7 +80,7 @@ export function buildCardSnapshot(
       const det = dayDetail(aggregate, d.ymd)
       return { ...det, topModels: topModels(aggregate, d.ymd) }
     }),
-    global: null,
+    global,
     anonIdSuffix: getAnonId().slice(-4),
     generatedAt: nowMs,
   }

@@ -70,8 +70,13 @@ export class UsageStore {
     this.data.uploadedDays[ymd] = { at: Date.now(), endpoint }
   }
 
-  isUploaded(ymd: string): boolean {
-    return this.data.uploadedDays[ymd] !== undefined
+  isUploaded(ymd: string, endpoint?: string): boolean {
+    const rec = this.data.uploadedDays[ymd]
+    if (!rec) return false
+    // ⚠️ 必须比对端点：换端点（如 127.0.0.1:3010 → madrank.ai）后，对旧端点上报过
+    // 的日子必须重新上报，否则同步循环判定「无事可做」、卡片永远等待
+    // （2026-09-01 生产切端点当日实锤）。
+    return endpoint === undefined || rec.endpoint === endpoint
   }
 
   /** 机器级聚合（按日）。跨会话重叠不扣减。 */

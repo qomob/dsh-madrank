@@ -13,13 +13,13 @@
  * 样式：主题 CSS 变量（非字面色），卡片标记与 settings 卡共用 card-html。
  */
 
-import { createElement, useEffect, useRef, useState } from 'react'
-import type { ReactElement, ReactPortal } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState, Component } from 'react'
+import type { ReactElement, ReactPortal, ErrorInfo, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { renderCardHtml, scopeEnabled } from './card-html.ts'
 import type { CardSnapshot, SettingsScopeLike } from './card-html.ts'
+import { composeGlobalView } from './card-data.ts'
 import { resolveLang, tr, type Lang } from './i18n.ts'
-import { cardDataFromList } from './card-data.ts'
 
 // ── 微观共享状态：数据节拍 ──────────────────────────────────
 
@@ -53,10 +53,72 @@ function cardLang(): Lang {
   return resolveLang(activeLocale)
 }
 
-function useTickSource(subscribe: (fn: () => void) => () => void): number {
+/** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
+function scopeValue(
+  scope: SettingsScopeLike | undefined,
+): { enabled?: boolean; endpoint?: string; global?: CardSnapshot['global'] } | undefined {
+  try {
+    return scope?.getSnapshot?.()?.value
+  } catch {
+    return undefined
+  }
+}
+
+/** 订阅一个快照源推进重渲染；subscribe 形状不符（宿主变体/热切换瞬间）静默跳过——
+ *  effect 里抛错会被 React 边界放大成整个入口卸载（「点击就没了」事故的同款根因）。 */
+function useTickSource(subscribe: ((fn: () => void) => () => void) | undefined): number {
   const [v, setV] = useState(0)
-  useEffect(() => subscribe(() => setV(x => x + 1)), [subscribe])
+  useEffect(() => {
+    if (typeof subscribe !== 'function') return
+    return subscribe(() => setV(x => x + 1))
+  }, [subscribe])
   return v
+}
+
+// ── 崩溃诊断边界：occupant 崩溃时原地显示错误文本而不是「点击就消失」──
+
+/**
+ * 挂在 footer 卡与 settings 卡最外层的自家边界。宿主边界只做卸载（「点击就没了」
+ * 事故），我们抢先一步接住：把 error stack 渲染在原地（可选中复制），同时打到 console。
+ * 这是诊断探针——问题定位后保留，防止任何未来回归再变成无声消失。
+ */
+export class CardErrorBoundary extends Component<{ children?: ReactNode }, { error: Error | null }> {
+  readonly state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('[madrank] occupant crashed — 请把界面上的错误文本反馈给维护者', error, info)
+  }
+  render(): ReactNode {
+    if (this.state.error === null) return this.props.children
+    const raw = this.state.error?.stack ?? String(this.state.error)
+    return createElement(
+      'div',
+      {
+        'data-madrank-error': 'true',
+        style: {
+          font: '11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace',
+          color: 'var(--dsw-alias-label-danger, #ff6b6b)',
+          background: 'rgba(255,107,107,.08)',
+          border: '1px solid rgba(255,107,107,.35)',
+          borderRadius: '8px',
+          padding: '8px 10px',
+          margin: '4px 0',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+          maxHeight: '220px',
+          overflow: 'auto',
+          textAlign: 'left',
+          cursor: 'text',
+          userSelect: 'text',
+          pointerEvents: 'auto',
+        } as Record<string, string>,
+        onClick: (e?: { stopPropagation(): void }) => e?.stopPropagation(),
+      },
+      '[MADRank debug] ' + raw.slice(0, 1600),
+    )
+  }
 }
 
 // ── 卡片面壳（settings 卡与 popover 共用）───────────────────
@@ -70,6 +132,15 @@ interface CardShellProps {
 export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
   const { scope, onClose, anchored } = props
   const tick = useTickSource(dataTick.subscribe)
+  // settings mirror 变更（Join/Leave 写入、同步后宿主触碰文档）也推进重渲染。
+  // ⚠️ scope.subscribe 是类方法（内部 this.store）——必须绑定 this 再交给 hook；
+  // 裸方法抽取调用 = 「Cannot read properties of undefined (reading 'store')」（点击即消失真凶）。
+  // useMemo 保证 scope 稳定时引用稳定（否则 effect 每渲染重订阅）。
+  const scopeSubscribe = useMemo(
+    () => (scope && typeof scope.subscribe === 'function' ? scope.subscribe.bind(scope) : undefined),
+    [scope],
+  )
+  const scopeTick = useTickSource(scopeSubscribe)
   const [, force] = useState(0)
   // 历史范围（会话态视图偏好，不写 settings）：7D 直方 / 30D 密排 / 单日明细
   const [range, setRange] = useState<'7d' | '30d' | 'day'>('7d')
@@ -82,9 +153,18 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
   try {
     const base = dataTick.get()
     const fixture = (typeof window !== 'undefined' ? window.__MADRANK_CARD_DATA__ : undefined) ?? {}
-    const snap: CardSnapshot = { ...base, ...fixture }
+    // global / raceUrl 组装走纯函数（优先级：fixture > settings mirror > null）
+    const sv = scopeValue(scope)
+    const { global, raceUrl } = composeGlobalView(fixture, sv)
+    const snap: CardSnapshot = { ...base, ...fixture, global }
     // 模态容器大：卡片用 lg 变体（解锁 320px 固定宽 + 双栏中段）
-    html = renderCardHtml(snap, scopeEnabled(scope), anchored ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd } : { locale: activeLocale, range, selectedYmd: selYmd })
+    html = renderCardHtml(
+      snap,
+      scopeEnabled(scope),
+      anchored
+        ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd, raceUrl }
+        : { locale: activeLocale, range, selectedYmd: selYmd, raceUrl },
+    )
   } catch (e) {
     console.warn('[madrank] card render fallback', e)
     html = '<div class="madrank-card"><h3 style="margin:0">' + tr(cardLang(), 'cardTitle') + '</h3>' +
@@ -134,7 +214,7 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
       rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
       dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
     }
-  }, [scope, tick, range, selYmd])
+  }, [scope, tick, scopeTick, range, selYmd])
 
   // Escape 关闭（模态态）
   useEffect(() => {
@@ -320,7 +400,8 @@ export function registerFooterEntry(
       },
       // 官方形态：第二参是组件；owner 注入 wide 等标准 props
       (cellProps?: { wide?: boolean }) =>
-        createElement(MadrankFooterCell, { ...cellProps, scope }),
+        createElement(CardErrorBoundary, null,
+          createElement(MadrankFooterCell, { ...cellProps, scope })),
     )
   })
 }

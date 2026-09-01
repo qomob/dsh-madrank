@@ -10,7 +10,7 @@ export const MadrankUsageSettingsSchema = z.object({
   /** 加入全球榜必须显式开启；默认完全离线。 */
   enabled: z.boolean().default(false),
   /** MADRank ingest 端点（服务端做 Community Ranking 校验）。 */
-  endpoint: z.string().default('https://madrank.app/api/usage/ingest'),
+  endpoint: z.string().default('https://madrank.ai/api/usage/ingest'),
 })
 
 export type MadrankUsageSettings = z.infer<typeof MadrankUsageSettingsSchema>

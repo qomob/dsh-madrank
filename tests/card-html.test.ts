@@ -51,6 +51,20 @@ describe('renderCardHtml · 状态 A（Local only）', () => {
   })
 })
 
+describe('renderCardHtml · View race 链接（self-host 派生）', () => {
+  const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
+  it('opts.raceUrl 派生 self-host 链接；缺省回退官方主站', () => {
+    expect(renderCardHtml(joined, true, { raceUrl: 'http://127.0.0.1:3000/race' }))
+      .toContain('href="http://127.0.0.1:3000/race"')
+    expect(renderCardHtml(joined, true)).toContain('href="https://madrank.ai/race"')
+  })
+  it('Local 态（状态 A）不渲染 View race 链接', () => {
+    const html = renderCardHtml(base, false, { style: false, raceUrl: 'http://x/race' })
+    expect(html).not.toContain('<a class="mk-race"')
+    expect(html).not.toContain('http://x/race')
+  })
+})
+
 describe('renderCardHtml · 状态 B（Joined）', () => {
   const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
 
@@ -67,7 +81,7 @@ describe('renderCardHtml · 状态 B（Joined）', () => {
     const html = renderCardHtml(joined, true)
     expect(html).not.toContain('data-madrank-join')
     expect(html).toContain('View race')
-    expect(html).toContain('href="https://madrank.app/race"')
+    expect(html).toContain('href="https://madrank.ai/race"')
     expect(html).toContain('data-madrank-disable')
   })
 
@@ -122,7 +136,7 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
     expect(html).toContain('7 日 Token')
     expect(html).toContain('查看排名赛')
     expect(html).toContain('>退出</button>')
-    expect(html).toContain('href="https://madrank.app/race"')
+    expect(html).toContain('href="https://madrank.ai/race"')
     expect(html).toContain('<b>你的全球排名</b>')
     expect(html).not.toContain('<b>Your global rank</b>')
     expect(html).not.toContain('>View race <')
@@ -140,7 +154,7 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
   it('zh Joined 未出排名：诚实空态中文', () => {
     const html = renderCardHtml(base, true, { locale: 'zh-CN' })
     expect(html).toContain('已加入')
-    expect(html).toContain('日级同步')
+    expect(html).toContain('首次匿名同步')
     expect(html).not.toMatch(/#\d/)
   })
 

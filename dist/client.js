@@ -163,6 +163,49 @@ window.__ModuleLoader__.load({
 			return rows.slice(0, limit);
 		}
 		//#endregion
+		//#region src/global-rank.ts
+		const num = (v) => typeof v === "number" && Number.isFinite(v);
+		const optStr = (v) => typeof v === "string" ? v : void 0;
+		/** 宽容解析（settings wire 段里的 global；宿主 resolve 注入，非持久化字段）。 */
+		function parseGlobalRecord(raw) {
+			if (typeof raw !== "object" || raw === null) return null;
+			const r = raw;
+			if (!num(r["rank"]) || !num(r["total"]) || !num(r["topPct"]) || !num(r["participants"])) return null;
+			if (typeof r["endpoint"] !== "string" || !num(r["updatedAt"])) return null;
+			return {
+				rank: r["rank"],
+				total: r["total"],
+				topPct: r["topPct"],
+				participants: r["participants"],
+				endpoint: r["endpoint"],
+				updatedAt: r["updatedAt"],
+				windowStart: optStr(r["windowStart"]),
+				windowEnd: optStr(r["windowEnd"])
+			};
+		}
+		/** 记录 → 卡片形状（离线快照与客户端 decode 共用同一映射，卡片 UI 零改动）。 */
+		function cardGlobalFromRecord(rec) {
+			if (rec === null || rec === void 0) return null;
+			const parsed = parseGlobalRecord(rec);
+			if (parsed === null) return null;
+			return {
+				rank: parsed.rank,
+				topPct: parsed.topPct,
+				race7d: parsed.total,
+				participants: parsed.participants,
+				updatedAt: parsed.updatedAt
+			};
+		}
+		/** View race 链接：从 endpoint 派生 origin（self-host 支持）；任何异常回退官方主站。 */
+		function raceUrlFromEndpoint(endpoint) {
+			try {
+				if (!endpoint) return "https://madrank.ai/race";
+				return new URL(endpoint).origin + "/race";
+			} catch {
+				return "https://madrank.ai/race";
+			}
+		}
+		//#endregion
 		//#region src/client/card-data.ts
 		/**
 		* card-data.ts — 浏览器半侧的数据装配（纯函数，可全量单测）。
@@ -235,6 +278,52 @@ window.__ModuleLoader__.load({
 				history: buildHistory(agg, nowMs)
 			};
 		}
+		/**
+		* settings wire 段窄化（SettingsScopeSpec.decode）。
+		* 显式 decode 使客户端跳过宿主 schemastery 默认校验、原样消费 describe 的
+		* value——这是排名走 settings mirror 的前提（resolve 注入的 global 不是
+		* schema 字段，默认校验不认识它）。坏形状一律降级：enabled=false、global=null。
+		*/
+		function decodeSettingsSection(section) {
+			if (typeof section !== "object" || section === null || Array.isArray(section)) return void 0;
+			const s = section;
+			return {
+				enabled: s["enabled"] === true,
+				endpoint: typeof s["endpoint"] === "string" ? s["endpoint"] : void 0,
+				global: decodeWireGlobal(s["global"])
+			};
+		}
+		/**
+		* wire 段 global 的双形状解码（2026-09-01 第六坑）。
+		* 宿主 resolve 注入的已是 CardGlobal（race7d；index.ts callable 出口），
+		* 而 parseGlobalRecord 只认 GlobalRankRecord（total/endpoint）——单测用
+		* 错误形状喂 decode 曾致全绿假象，真实 rank 首次点亮当日实锤。
+		*/
+		function decodeWireGlobal(raw) {
+			if (typeof raw !== "object" || raw === null) return null;
+			const r = raw;
+			const num = (v) => typeof v === "number" && Number.isFinite(v);
+			if (num(r["rank"]) && num(r["topPct"]) && num(r["race7d"])) return {
+				rank: r["rank"],
+				topPct: r["topPct"],
+				race7d: r["race7d"],
+				participants: num(r["participants"]) ? r["participants"] : void 0,
+				updatedAt: num(r["updatedAt"]) ? r["updatedAt"] : void 0
+			};
+			return cardGlobalFromRecord(parseGlobalRecord(raw));
+		}
+		/**
+		* 卡片 global / View race 链接组装（优先级锁定）：
+		* fixture（window.__MADRANK_CARD_DATA__，测试/调试覆盖口）
+		*   > settings mirror（宿主 resolve 注入的唯一排名缝）> null（诚实空态）。
+		* 投影 feed 不携带排名——usage 语义与 gamification 永不互串。
+		*/
+		function composeGlobalView(fixture, scope) {
+			return {
+				global: fixture?.global !== void 0 ? fixture.global ?? null : scope?.global ?? null,
+				raceUrl: raceUrlFromEndpoint(scope?.endpoint)
+			};
+		}
 		//#endregion
 		//#region src/client/i18n.ts
 		/** zh 系（zh / zh-CN / zh-TW…）→ zh；其余 → en。 */
@@ -269,8 +358,8 @@ window.__ModuleLoader__.load({
 				yourRank: "Your global rank",
 				topChip: "TOP {x}%",
 				race7dLabel: "7-day tokens",
-				shareFine: "Sharing daily token aggregates anonymously · anonId • {mask}. Never prompts or responses.",
-				joinedPending: "Joined — your rank appears after tonight’s first daily sync.",
+				shareFine: "One anonymous daily number; a random code stands for you; chats never leave your device.",
+				joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
 				viewRace: "View race",
 				leave: "Leave",
 				footerUpdated: "Updated {t} UTC"
@@ -302,8 +391,8 @@ window.__ModuleLoader__.load({
 				yourRank: "你的全球排名",
 				topChip: "前 {x}%",
 				race7dLabel: "7 日 Token",
-				shareFine: "匿名共享每日 Token 聚合 · anonId • {mask} · 绝不含提示词与回复。",
-				joinedPending: "已加入 — 完成今晚首次日级同步后显示排名。",
+				shareFine: "每天只上报一条匿名汇总数字；身份只是随机代号，不关联任何账号；聊天内容永不上传。",
+				joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
 				viewRace: "查看排名赛",
 				leave: "退出",
 				footerUpdated: "更新于 {t} UTC"
@@ -512,20 +601,20 @@ window.__ModuleLoader__.load({
 		* 仅作用于 .madrank-card-lg（由 renderCardHtml 的 opts.size='lg' 挂载）。
 		*/
 		const LG_CSS = [
-			".madrank-card-lg{width:100%;max-width:none;font-size:14px;line-height:1.5;gap:14px}",
+			".madrank-card-lg{width:100%;max-width:none;font-size:14px;line-height:1.5;gap:14px;container-type:inline-size}",
 			".madrank-card-lg h3{font-size:15px;line-height:22px}",
 			".madrank-card-lg .mk-mark{width:24px;height:24px;font-size:12px;border-radius:7px}",
 			".madrank-card-lg .mk-tag{font-size:12px;min-height:24px}",
 			".madrank-card-lg .mk-hero{padding:18px 22px;border-radius:14px;gap:6px}",
 			".madrank-card-lg .mk-klabel{font-size:12px}",
-			".madrank-card-lg .mk-big{font-size:46px;line-height:52px}",
+			".madrank-card-lg .mk-big{font-size:46px;line-height:56px}",
 			".madrank-card-lg .mk-sub{font-size:13px}",
 			".madrank-card-lg .mk-chip{font-size:12px;line-height:20px;padding:2px 10px}",
 			".madrank-card-lg .mk-h b{font-size:13px}",
 			".madrank-card-lg .mk-h span{font-size:12px}",
 			"/* 模型行放大（Global rank 已下移至同步区） */",
 			".madrank-card-lg .mk-mrow{font-size:13px;margin-top:8px}",
-			".madrank-card-lg .mk-rankrow .mk-big{font-size:34px;line-height:40px}",
+			".madrank-card-lg .mk-rankrow .mk-big{font-size:34px;line-height:44px}",
 			".madrank-card-lg .mk-rlab{font-size:12px}",
 			".madrank-card-lg a.mk-race{font-size:13px}",
 			".madrank-card-lg .mk-tip::after{width:260px;font-size:12px}",
@@ -535,17 +624,16 @@ window.__ModuleLoader__.load({
 			".madrank-card-lg .mk-bar{height:6px;border-radius:3px;margin-top:3px}",
 			".madrank-card-lg .mk-hist{height:110px;gap:9px}",
 			".madrank-card-lg .mk-hval,.madrank-card-lg .mk-hname{font-size:10px}",
-			"/* 同步区：说明左、按钮右，用足宽度 */",
-			".madrank-card-lg .mk-sync{flex-direction:row;align-items:center;justify-content:space-between;",
-			"  gap:16px;padding-top:14px}",
-			".madrank-card-lg .mk-fine{font-size:12px;max-width:62%}",
-			".madrank-card-lg button{min-height:40px;padding:8px 18px;border-radius:9px;font-size:14px;",
-			"  width:auto;min-width:220px;flex:none}",
+			"/* 同步区：按容器宽度（非视口！）自适应 —— DSH 弹窗 320px 固定宽时桌面横排曾被硬塞，",
+			"   是 2026-09-01 「卡片乱版」根因。窄容器纵排为默认，宽容器（≥620px）才横排。 */",
+			".madrank-card-lg .mk-fine{font-size:12px}",
 			".madrank-card-lg .mk-foot{font-size:11px}",
-			"@media (max-width:620px){",
-			"  .madrank-card-lg .mk-sync{flex-direction:column;align-items:stretch}",
-			"  .madrank-card-lg .mk-fine{max-width:none}",
-			"  .madrank-card-lg button{width:100%}}"
+			"@container (min-width:620px){",
+			"  .madrank-card-lg .mk-sync{flex-direction:row;align-items:center;justify-content:space-between;",
+			"    gap:16px;padding-top:14px}",
+			"  .madrank-card-lg .mk-fine{max-width:62%}",
+			"  .madrank-card-lg button{min-height:40px;padding:8px 18px;border-radius:9px;font-size:14px;",
+			"    width:auto;min-width:220px;flex:none}}"
 		].join("");
 		/** 样式注入一次（官方 data-plugin-css 去重范式）；预览工具可 opts.style 内联。 */
 		function ensureCardStyles() {
@@ -558,6 +646,8 @@ window.__ModuleLoader__.load({
 			tag.textContent = CSS + LG_CSS;
 			document.head.appendChild(tag);
 		}
+		/** View race 链接回退值（endpoint 缺席/不可解析时；与默认 endpoint 同源）。 */
+		const RACE_URL_DEFAULT = "https://madrank.ai/race";
 		/** 匿名 ID 掩码（shareFine 的 {mask} 占位；两种语言共用同一标记）。 */
 		const ANON_MASK = "<span style=\"font-family:var(--ds-font-family-code)\">••••</span>";
 		/** 明细分段（requests/active/in/out/cached+tip）；hero 与单日视图共用同一口径。 */
@@ -711,7 +801,7 @@ window.__ModuleLoader__.load({
 		* 有排名：#N + TOP x% + 7-day tokens；未出排名：诚实空态（等首个日级 sync）。
 		* 大按钮退场 \u2192 View race 链接 + 轻量 Leave（panel.ts 仍按 data-madrank-disable 绑定）。
 		*/
-		function htmlJoined(hasRank, global, lang) {
+		function htmlJoined(hasRank, global, lang, raceUrl) {
 			const rankBlock = hasRank ? [
 				"<div class=\"mk-rankrow\">",
 				"<span class=\"mk-big\">#" + global.rank.toLocaleString("en-US") + "</span>",
@@ -725,20 +815,20 @@ window.__ModuleLoader__.load({
 				rankBlock,
 				"<p class=\"mk-fine\">" + tr(lang, "shareFine", { mask: ANON_MASK }) + "</p>",
 				"<div class=\"mk-actions\">",
-				"<a class=\"mk-race\" href=\"https://madrank.app/race\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
+				"<a class=\"mk-race\" href=\"" + raceUrl + "\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
 				"<button type=\"button\" class=\"mk-quiet\" data-madrank-disable>" + tr(lang, "leave") + "</button>",
 				"</div>",
 				"</div>"
 			].join("");
 		}
-		function htmlSync(enabled, snap, lang) {
+		function htmlSync(enabled, snap, lang, raceUrl) {
 			if (!enabled) return htmlJoinCta(lang);
 			const g = snap.global;
 			return htmlJoined(g != null, g ?? {
 				rank: 0,
 				topPct: 0,
 				race7d: 0
-			}, lang);
+			}, lang, raceUrl);
 		}
 		/**
 		* 纯渲染：卡片 HTML（React 壳与预览工具共用）。
@@ -748,6 +838,7 @@ window.__ModuleLoader__.load({
 		function renderCardHtml(snap, enabled, opts = { style: false }) {
 			ensureCardStyles();
 			const lang = resolveLang(opts.locale);
+			const raceUrl = opts.raceUrl ?? RACE_URL_DEFAULT;
 			const t = snap.today;
 			const chips = [];
 			const streak = snap.streakDays ?? 0;
@@ -778,7 +869,7 @@ window.__ModuleLoader__.load({
 				heroBlock,
 				midBlock,
 				htmlHistorySection(snap, lang, opts.range ?? "7d", opts.selectedYmd),
-				htmlSync(enabled, snap, lang),
+				htmlSync(enabled, snap, lang, raceUrl),
 				"<div class=\"mk-foot\"><span>" + tr(lang, "footerUpdated", { t: hhmm }) + "</span></div>",
 				"</div>"
 			].join("");
@@ -827,14 +918,67 @@ window.__ModuleLoader__.load({
 		function cardLang() {
 			return resolveLang(activeLocale);
 		}
+		/** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
+		function scopeValue(scope) {
+			try {
+				return scope?.getSnapshot?.()?.value;
+			} catch {
+				return;
+			}
+		}
+		/** 订阅一个快照源推进重渲染；subscribe 形状不符（宿主变体/热切换瞬间）静默跳过——
+		*  effect 里抛错会被 React 边界放大成整个入口卸载（「点击就没了」事故的同款根因）。 */
 		function useTickSource(subscribe) {
 			const [v, setV] = (0, react.useState)(0);
-			(0, react.useEffect)(() => subscribe(() => setV((x) => x + 1)), [subscribe]);
+			(0, react.useEffect)(() => {
+				if (typeof subscribe !== "function") return;
+				return subscribe(() => setV((x) => x + 1));
+			}, [subscribe]);
 			return v;
 		}
+		/**
+		* 挂在 footer 卡与 settings 卡最外层的自家边界。宿主边界只做卸载（「点击就没了」
+		* 事故），我们抢先一步接住：把 error stack 渲染在原地（可选中复制），同时打到 console。
+		* 这是诊断探针——问题定位后保留，防止任何未来回归再变成无声消失。
+		*/
+		var CardErrorBoundary = class extends react.Component {
+			state = { error: null };
+			static getDerivedStateFromError(error) {
+				return { error };
+			}
+			componentDidCatch(error, info) {
+				console.error("[madrank] occupant crashed — 请把界面上的错误文本反馈给维护者", error, info);
+			}
+			render() {
+				if (this.state.error === null) return this.props.children;
+				const raw = this.state.error?.stack ?? String(this.state.error);
+				return (0, react.createElement)("div", {
+					"data-madrank-error": "true",
+					style: {
+						font: "11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+						color: "var(--dsw-alias-label-danger, #ff6b6b)",
+						background: "rgba(255,107,107,.08)",
+						border: "1px solid rgba(255,107,107,.35)",
+						borderRadius: "8px",
+						padding: "8px 10px",
+						margin: "4px 0",
+						whiteSpace: "pre-wrap",
+						wordBreak: "break-all",
+						maxHeight: "220px",
+						overflow: "auto",
+						textAlign: "left",
+						cursor: "text",
+						userSelect: "text",
+						pointerEvents: "auto"
+					},
+					onClick: (e) => e?.stopPropagation()
+				}, "[MADRank debug] " + raw.slice(0, 1600));
+			}
+		};
 		function CardShell(props) {
 			const { scope, onClose, anchored } = props;
 			const tick = useTickSource(dataTick.subscribe);
+			const scopeTick = useTickSource((0, react.useMemo)(() => scope && typeof scope.subscribe === "function" ? scope.subscribe.bind(scope) : void 0, [scope]));
 			const [, force] = (0, react.useState)(0);
 			const [range, setRange] = (0, react.useState)("7d");
 			const [selYmd, setSelYmd] = (0, react.useState)(void 0);
@@ -843,18 +987,22 @@ window.__ModuleLoader__.load({
 			try {
 				const base = dataTick.get();
 				const fixture = (typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ : void 0) ?? {};
+				const { global, raceUrl } = composeGlobalView(fixture, scopeValue(scope));
 				html = renderCardHtml({
 					...base,
-					...fixture
+					...fixture,
+					global
 				}, scopeEnabled(scope), anchored ? {
 					size: "lg",
 					locale: activeLocale,
 					range,
-					selectedYmd: selYmd
+					selectedYmd: selYmd,
+					raceUrl
 				} : {
 					locale: activeLocale,
 					range,
-					selectedYmd: selYmd
+					selectedYmd: selYmd,
+					raceUrl
 				});
 			} catch (e) {
 				console.warn("[madrank] card render fallback", e);
@@ -910,6 +1058,7 @@ window.__ModuleLoader__.load({
 			}, [
 				scope,
 				tick,
+				scopeTick,
 				range,
 				selYmd
 			]);
@@ -1065,30 +1214,19 @@ window.__ModuleLoader__.load({
 					id: "madrank-usage",
 					order: 40,
 					label: "MADRank Usage"
-				}, (cellProps) => (0, react.createElement)(MadrankFooterCell, {
+				}, (cellProps) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankFooterCell, {
 					...cellProps,
 					scope
-				}));
+				})));
 			});
 		}
 		//#endregion
 		//#region src/client/index.ts
 		/**
-		* client/index.ts — 浏览器半侧装配（方案 A + 方案 A'）。
-		*
-		* 官方注册姿势（对照 cookbook 与 ui-cordis 先例）：
-		*   slots.inject(slotKey, () => slots.register(options, ReactComponent))
-		* 组件形参在 React 渲染管线内；本包不 import DSH 设计系统
-		* （bundle 纯净度门禁），标记自持，主题经 CSS 变量。
-		*
-		* 注册面：
-		* - settings.plugin.item —— MADRank 设置卡片（keyed，namespace 配对）
-		* - sidebar.footer.action —— 侧栏脚部动作（list，id 'madrank-usage'，
-		*   点击锚定展开同一张卡片；wide/rail 两态）
-		*
-		* 数据：官方缝隙 sessions.list 携带宿主折算的 madrankUsage 投影 view
-		* （session.list 基线 + 实时推送）；window.__MADRANK_CARD_DATA__ 仅作
-		* fixture 覆盖口（测试/调试）。
+		* client/index.ts — 浏览器半侧装配（方案 A + 方案 A'）:
+		* slots.inject + sidebar.footer.action 注册；数据 = sessions 投影 feed +
+		* settings mirror（全球排名唯一传输缝，decodeSettingsSection 窄化）；
+		* window.__MADRANK_CARD_DATA__ 仅作 fixture 覆盖口（测试/调试）。
 		*/
 		const SETTINGS_NS$1 = "madrank-usage";
 		/** 官方数据缝隙见上；'sessions' 为 ISessions 标准 feed。 */
@@ -1117,7 +1255,10 @@ window.__ModuleLoader__.load({
 		}
 		const windowFixture = () => typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ ?? {} : {};
 		function apply(ctx) {
-			const scope = ctx.settingsScope?.bind({ namespace: SETTINGS_NS$1 });
+			const scope = ctx.settingsScope?.bind({
+				namespace: SETTINGS_NS$1,
+				decode: decodeSettingsSection
+			});
 			const slots = ctx.slots;
 			if (!scope || !slots) return;
 			const feed = ctx.sessions?.list;
@@ -1149,10 +1290,10 @@ window.__ModuleLoader__.load({
 					name: "settings.plugin.item",
 					key: "madrank.usage.card",
 					order: 90
-				}, () => (0, react.createElement)(CardShell, {
+				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(CardShell, {
 					scope,
 					anchored: false
-				}));
+				})));
 			});
 			registerFooterEntry(slots, scope);
 		}
@@ -1161,6 +1302,7 @@ window.__ModuleLoader__.load({
 		exports.MadrankFooterCell = MadrankFooterCell;
 		exports.SETTINGS_NS = SETTINGS_NS$1;
 		exports.apply = apply;
+		exports.decodeSettingsSection = decodeSettingsSection;
 		exports.inject = inject;
 		exports.renderCardHtml = renderCardHtml;
 		return module.exports;

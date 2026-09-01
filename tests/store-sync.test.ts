@@ -69,16 +69,27 @@ describe('UsageStore', () => {
     expect(store.isUploaded('2026-08-26')).toBe(false)
     expect(Object.keys(store.aggregateDays())).toHaveLength(0)
   })
+
+  it('换端点后旧端点上传过的日子必须重新上报（isUploaded 端点感知，2026-09-01 生产实锤）', () => {
+    const store = new UsageStore(dir)
+    store.replaceSession('s1', 1, makeView([['2026-08-26', 'a/b', 100]]))
+    store.markUploaded('2026-08-26', 'http://127.0.0.1:3010/api/usage/ingest')
+    expect(store.isUploaded('2026-08-26')).toBe(true) // 不带端点 = 旧语义兼容
+    expect(store.isUploaded('2026-08-26', 'http://127.0.0.1:3010/api/usage/ingest')).toBe(true)
+    expect(store.isUploaded('2026-08-26', 'https://madrank.ai/api/usage/ingest')).toBe(false) // 新端点 ⇒ 重新上报
+  })
 })
 
 describe('sync（日级批量、只传已结束的日）', () => {
-  it('composeDayPayload 口径：cacheWrite 并入 input，cacheRead 单列', () => {
+  it('composeDayPayload 口径：models 是对象映射（冻结 wire 契约）；cacheWrite 并入 input，cacheRead 单列', () => {
     const payload = composeDayPayload('anon-x', '2026-08-26', {
       'deepseek/chat': { inputTokens: 100, outputTokens: 40, cacheReadTokens: 900, cacheWriteTokens: 10, requests: 2 },
     })
     expect(payload.schemaVersion).toBe(1) // Usage Protocol v1 冻结字段
-    expect(payload.days[0]!.models[0]).toMatchObject({
-      model: 'deepseek/chat', input: 110, output: 40, cacheRead: 900, requests: 2,
+    // wire 契约：models = Record<model, buckets>（数组形状会被服务端 400 BAD_MODELS 拒绝）
+    expect(Array.isArray(payload.days[0]!.models)).toBe(false)
+    expect(payload.days[0]!.models['deepseek/chat']).toEqual({
+      input: 110, output: 40, cacheRead: 900, requests: 2,
     })
   })
 
@@ -116,6 +127,32 @@ describe('sync（日级批量、只传已结束的日）', () => {
 
     const out2 = await syncPendingDays(store, settings, () => 'anon-1', fakeFetch)
     expect(out2).toHaveLength(0)
+  })
+
+  it('成功响应的 race 段经 onRace 上抛（rank 捕获缝）；坏形状静默', async () => {
+    const store = new UsageStore(dir)
+    store.replaceSession('s1', 1, makeView([
+      ['2026-08-25', 'deepseek/chat', 333],
+      ['2026-08-26', 'deepseek/chat', 444],
+    ]))
+    const race = { participants: 3, me: { rank: 2, total: 777, topPct: 66.7 }, leaders: { items: [] } }
+    const seen: unknown[] = []
+    const okFetch = (async () =>
+      new Response(JSON.stringify({ ok: true, results: [], race }), { status: 200 })
+    ) as unknown as typeof fetch
+    const out = await syncPendingDays(store, { enabled: true, endpoint: 'https://e' }, () => 'a', okFetch, (r) => seen.push(r))
+    expect(out.every(o => o.ok)).toBe(true)
+    expect(seen).toHaveLength(2) // 多日回传：逐响应上抛，最后一次即最完整状态
+    expect(seen[1]).toMatchObject({ participants: 3, me: { rank: 2, total: 777 } })
+
+    // 坏 race 形状：onRace 不触发，但上传仍 ok（展示数据缺位不阻断同步）
+    store.replaceSession('s1', 1, makeView([['2026-08-24', 'a/b', 5]]))
+    const badFetch = (async () =>
+      new Response('{"ok":true,"race":{"participants":"x"}}', { status: 200 })
+    ) as unknown as typeof fetch
+    const out2 = await syncPendingDays(store, { enabled: true, endpoint: 'https://e' }, () => 'a', badFetch, (r) => seen.push(r))
+    expect(out2[0]!.ok).toBe(true)
+    expect(seen).toHaveLength(2)
   })
 
   it('失败不标记可重试；yesterdayYmd 基于 UTC', async () => {

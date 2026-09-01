@@ -1,27 +1,16 @@
 /// <reference lib="dom" />
 
 /**
- * client/index.ts — 浏览器半侧装配（方案 A + 方案 A'）。
- *
- * 官方注册姿势（对照 cookbook 与 ui-cordis 先例）：
- *   slots.inject(slotKey, () => slots.register(options, ReactComponent))
- * 组件形参在 React 渲染管线内；本包不 import DSH 设计系统
- * （bundle 纯净度门禁），标记自持，主题经 CSS 变量。
- *
- * 注册面：
- * - settings.plugin.item —— MADRank 设置卡片（keyed，namespace 配对）
- * - sidebar.footer.action —— 侧栏脚部动作（list，id 'madrank-usage'，
- *   点击锚定展开同一张卡片；wide/rail 两态）
- *
- * 数据：官方缝隙 sessions.list 携带宿主折算的 madrankUsage 投影 view
- * （session.list 基线 + 实时推送）；window.__MADRANK_CARD_DATA__ 仅作
- * fixture 覆盖口（测试/调试）。
+ * client/index.ts — 浏览器半侧装配（方案 A + 方案 A'）:
+ * slots.inject + sidebar.footer.action 注册；数据 = sessions 投影 feed +
+ * settings mirror（全球排名唯一传输缝，decodeSettingsSection 窄化）；
+ * window.__MADRANK_CARD_DATA__ 仅作 fixture 覆盖口（测试/调试）。
  */
 
 import { createElement } from 'react'
 import type { LocaleFaceLike } from './card-html.ts'
-import { cardDataFromList } from './card-data.ts'
-import { CardShell, dataTick, registerFooterEntry, setActiveLocale } from './panel.ts'
+import { cardDataFromList, decodeSettingsSection } from './card-data.ts'
+import { CardErrorBoundary, CardShell, dataTick, registerFooterEntry, setActiveLocale } from './panel.ts'
 
 export const SETTINGS_NS = 'madrank-usage'
 
@@ -36,6 +25,8 @@ export type {
   SettingsScopeLike,
   SlotsLike,
 } from './card-html.ts'
+export type { CardGlobal } from '../global-rank.ts'
+export { decodeSettingsSection } from './card-data.ts'
 export { MadrankFooterCell } from './panel.ts'
 
 interface SessionsFaceLike {
@@ -44,7 +35,13 @@ interface SessionsFaceLike {
 
 export interface ClientCtxLike {
   slots?: import('./card-html.ts').SlotsLike
-  settingsScope?: { bind(opts: { namespace: string }): import('./card-html.ts').SettingsScopeLike }
+  settingsScope?: {
+    bind(opts: {
+      namespace: string
+      /** 窄化 wire 段；提供后跳过宿主 schemastery 默认校验（global 注入依赖此口）。 */
+      decode?: (section: unknown) => unknown
+    }): import('./card-html.ts').SettingsScopeLike
+  }
   sessions?: SessionsFaceLike
   locale?: LocaleFaceLike
 }
@@ -71,7 +68,7 @@ const windowFixture = (): Partial<import('./card-html.ts').CardSnapshot> =>
   typeof window !== 'undefined' ? (window.__MADRANK_CARD_DATA__ ?? {}) : {}
 
 export function apply(ctx: ClientCtxLike): void {
-  const scope = ctx.settingsScope?.bind({ namespace: SETTINGS_NS })
+  const scope = ctx.settingsScope?.bind({ namespace: SETTINGS_NS, decode: decodeSettingsSection })
   const slots = ctx.slots
   if (!scope || !slots) return
 
@@ -100,7 +97,7 @@ export function apply(ctx: ClientCtxLike): void {
       name: 'settings.plugin.item',
       key: 'madrank.usage.card',
       order: 90,
-    }, () => createElement(CardShell, { scope, anchored: false }))
+    }, () => createElement(CardErrorBoundary, null, createElement(CardShell, { scope, anchored: false })))
   })
 
   // 2) 侧栏脚部动作（Settings 旁；点击锚定展开同一张卡）

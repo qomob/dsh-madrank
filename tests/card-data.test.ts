@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractViews, mergeViews, cardDataFromList } from '../src/client/card-data.ts'
+import { composeGlobalView, decodeSettingsSection, extractViews, mergeViews, cardDataFromList } from '../src/client/card-data.ts'
 import { buildView, initState, applyEvent } from '../src/fold.ts'
 
 const NOW = Date.UTC(2026, 7, 27, 15)
@@ -93,5 +93,51 @@ describe('cardDataFromList（端到端口径）', () => {
     expect(data.today.vs7dAvgMultiple).toBeNull()
     expect(data.streak).toBe(0)
     expect(data.history.every((d) => d.primaryTokens === 0)).toBe(true)
+  })
+})
+
+describe('decodeSettingsSection（settings wire 段窄化）', () => {
+  it('取 enabled/endpoint/global；排名 record → 卡片形状', () => {
+    const d = decodeSettingsSection({ enabled: true, endpoint: 'https://e/ingest', global: {"rank":1284,"total":8210000,"topPct":7.4,"participants":2481,"endpoint":"https://madrank.ai/api/usage/ingest","updatedAt":42} })
+    expect(d).toEqual({
+      enabled: true,
+      endpoint: 'https://e/ingest',
+      global: { rank: 1284, topPct: 7.4, race7d: 8_210_000, participants: 2481, updatedAt: 42 },
+    })
+  })
+  it('坏形状降级：非对象 → undefined；字段缺失 → enabled=false、global=null', () => {
+    expect(decodeSettingsSection('garbage')).toBeUndefined()
+    expect(decodeSettingsSection(null)).toBeUndefined()
+    expect(decodeSettingsSection([1])).toBeUndefined()
+    expect(decodeSettingsSection({})).toEqual({ enabled: false, endpoint: undefined, global: null })
+    expect(decodeSettingsSection({ enabled: true, global: { rank: 'x' } })?.global).toBeNull()
+  })
+  it('宿主注入的 CardGlobal 形状（race7d，无 total/endpoint）必须原样存活（2026-09-01 第六坑回归）', () => {
+    // 2026-09-01 生产 describe 的真实 value.global（rank:1 首次点亮当日抓包）
+    const d = decodeSettingsSection({
+      enabled: true,
+      endpoint: 'https://madrank.ai/api/usage/ingest',
+      global: { rank: 1, topPct: 100, race7d: 472942, participants: 1, updatedAt: 1788237315863 },
+    })
+    expect(d?.global).toEqual({ rank: 1, topPct: 100, race7d: 472942, participants: 1, updatedAt: 1788237315863 })
+  })
+})
+
+describe('composeGlobalView（组装优先级锁定）', () => {
+  const scopeGlobal = { rank: 2, topPct: 40, race7d: 1_555_567 }
+  it('fixture > settings mirror > null', () => {
+    expect(composeGlobalView({ global: { rank: 9, topPct: 1, race7d: 1 } }, { global: scopeGlobal }))
+      .toMatchObject({ global: { rank: 9 } })
+    expect(composeGlobalView({}, { global: scopeGlobal, endpoint: 'https://e/i' }))
+      .toEqual({ global: scopeGlobal, raceUrl: 'https://e/race' })
+    expect(composeGlobalView(undefined, undefined))
+      .toEqual({ global: null, raceUrl: 'https://madrank.ai/race' })
+  })
+  it('fixture 显式 null 覆盖 mirror（测试口可以强制诚实空态）', () => {
+    expect(composeGlobalView({ global: null }, { global: scopeGlobal })?.global).toBeNull()
+  })
+  it('raceUrl 恒从 settings endpoint 派生（self-host）', () => {
+    expect(composeGlobalView({}, { endpoint: 'http://127.0.0.1:3010/api/usage/ingest' })?.raceUrl)
+      .toBe('http://127.0.0.1:3010/race')
   })
 })

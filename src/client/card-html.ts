@@ -11,6 +11,9 @@
  *****************************************************************************/
 
 import { fmtActive, resolveLang, tr, WEEKDAYS, type Lang } from './i18n.ts'
+import type { CardGlobal } from '../global-rank.ts'
+
+export type { CardGlobal } from '../global-rank.ts'
 
 export const SETTINGS_NS = 'madrank-usage'
 
@@ -49,7 +52,8 @@ export interface CardSnapshot {
   last7Days?: Array<{ ymd: string; primaryTokens: number }>
   /** 近 60 天日级明细（HISTORY_WINDOW_DAYS）；缺席 = 仅 7 天直方（v1 快照）。 */
   history?: CardDayEntry[]
-  global?: { rank: number; topPct: number; race7d: number } | null
+  /** Join 后的全球排名（宿主经 settings mirror 注入；Local 态恒 null）。 */
+  global?: CardGlobal | null
   anonIdSuffix?: string
   generatedAt?: number
 }
@@ -60,7 +64,10 @@ declare global {
 
 /** Host settingsScope 的最小结构镜像（SettingsScopeController 真实契约）。 */
 export interface SettingsScopeLike {
-  getSnapshot(): { status?: string; value?: { enabled?: boolean; endpoint?: string } } | undefined
+  getSnapshot(): {
+    status?: string
+    value?: { enabled?: boolean; endpoint?: string; global?: CardGlobal | null }
+  } | undefined
   subscribe(listener: () => void): () => void
   set(field: string, value: unknown): void | Promise<void>
   unset(field: string): void | Promise<void>
@@ -239,20 +246,20 @@ const CSS = [
  * 仅作用于 .madrank-card-lg（由 renderCardHtml 的 opts.size='lg' 挂载）。
  */
 const LG_CSS = [
-'.madrank-card-lg{width:100%;max-width:none;font-size:14px;line-height:1.5;gap:14px}',
+'.madrank-card-lg{width:100%;max-width:none;font-size:14px;line-height:1.5;gap:14px;container-type:inline-size}',
 '.madrank-card-lg h3{font-size:15px;line-height:22px}',
 '.madrank-card-lg .mk-mark{width:24px;height:24px;font-size:12px;border-radius:7px}',
 '.madrank-card-lg .mk-tag{font-size:12px;min-height:24px}',
 '.madrank-card-lg .mk-hero{padding:18px 22px;border-radius:14px;gap:6px}',
 '.madrank-card-lg .mk-klabel{font-size:12px}',
-'.madrank-card-lg .mk-big{font-size:46px;line-height:52px}',
+'.madrank-card-lg .mk-big{font-size:46px;line-height:56px}',
 '.madrank-card-lg .mk-sub{font-size:13px}',
 '.madrank-card-lg .mk-chip{font-size:12px;line-height:20px;padding:2px 10px}',
 '.madrank-card-lg .mk-h b{font-size:13px}',
 '.madrank-card-lg .mk-h span{font-size:12px}',
 '/* 模型行放大（Global rank 已下移至同步区） */',
 '.madrank-card-lg .mk-mrow{font-size:13px;margin-top:8px}',
-'.madrank-card-lg .mk-rankrow .mk-big{font-size:34px;line-height:40px}',
+'.madrank-card-lg .mk-rankrow .mk-big{font-size:34px;line-height:44px}',
 '.madrank-card-lg .mk-rlab{font-size:12px}',
 '.madrank-card-lg a.mk-race{font-size:13px}',
 '.madrank-card-lg .mk-tip::after{width:260px;font-size:12px}',
@@ -262,17 +269,16 @@ const LG_CSS = [
 '.madrank-card-lg .mk-bar{height:6px;border-radius:3px;margin-top:3px}',
 '.madrank-card-lg .mk-hist{height:110px;gap:9px}',
 '.madrank-card-lg .mk-hval,.madrank-card-lg .mk-hname{font-size:10px}',
-'/* 同步区：说明左、按钮右，用足宽度 */',
-'.madrank-card-lg .mk-sync{flex-direction:row;align-items:center;justify-content:space-between;',
-'  gap:16px;padding-top:14px}',
-'.madrank-card-lg .mk-fine{font-size:12px;max-width:62%}',
-'.madrank-card-lg button{min-height:40px;padding:8px 18px;border-radius:9px;font-size:14px;',
-'  width:auto;min-width:220px;flex:none}',
+'/* 同步区：按容器宽度（非视口！）自适应 —— DSH 弹窗 320px 固定宽时桌面横排曾被硬塞，',
+'   是 2026-09-01 「卡片乱版」根因。窄容器纵排为默认，宽容器（≥620px）才横排。 */',
+'.madrank-card-lg .mk-fine{font-size:12px}',
 '.madrank-card-lg .mk-foot{font-size:11px}',
-'@media (max-width:620px){',
-'  .madrank-card-lg .mk-sync{flex-direction:column;align-items:stretch}',
-'  .madrank-card-lg .mk-fine{max-width:none}',
-'  .madrank-card-lg button{width:100%}}',
+'@container (min-width:620px){',
+'  .madrank-card-lg .mk-sync{flex-direction:row;align-items:center;justify-content:space-between;',
+'    gap:16px;padding-top:14px}',
+'  .madrank-card-lg .mk-fine{max-width:62%}',
+'  .madrank-card-lg button{min-height:40px;padding:8px 18px;border-radius:9px;font-size:14px;',
+'    width:auto;min-width:220px;flex:none}}',
 ].join('')
 
 /** 样式注入一次（官方 data-plugin-css 去重范式）；预览工具可 opts.style 内联。 */
@@ -289,8 +295,8 @@ export function ensureCardStyles(): void {
 
 // ── 模块渲染 ─────────────────────────────────────
 
-/** Joined 态的轻量出口（与 endpoint 默认同源 madrank.app；self-host 场景后续随 endpoint 派生）。 */
-const RACE_URL = 'https://madrank.app/race'
+/** View race 链接回退值（endpoint 缺席/不可解析时；与默认 endpoint 同源）。 */
+const RACE_URL_DEFAULT = 'https://madrank.ai/race'
 
 /** 匿名 ID 掩码（shareFine 的 {mask} 占位；两种语言共用同一标记）。 */
 const ANON_MASK = '<span style="font-family:var(--ds-font-family-code)">••••</span>'
@@ -487,6 +493,7 @@ function htmlJoined(
   hasRank: boolean,
   global: { rank: number; topPct: number; race7d: number },
   lang: Lang,
+  raceUrl: string,
 ): string {
   const rankBlock = hasRank
     ? [
@@ -505,7 +512,7 @@ function htmlJoined(
     rankBlock,
     '<p class="mk-fine">' + tr(lang, 'shareFine', { mask: ANON_MASK }) + '</p>',
     '<div class="mk-actions">',
-    '<a class="mk-race" href="' + RACE_URL + '" target="_blank" rel="noreferrer noopener">' +
+    '<a class="mk-race" href="' + raceUrl + '" target="_blank" rel="noreferrer noopener">' +
       tr(lang, 'viewRace') + ' <span aria-hidden="true">\u2192</span></a>',
     '<button type="button" class="mk-quiet" data-madrank-disable>' + tr(lang, 'leave') + '</button>',
     '</div>',
@@ -513,10 +520,10 @@ function htmlJoined(
   ].join('')
 }
 
-function htmlSync(enabled: boolean, snap: CardSnapshot, lang: Lang): string {
+function htmlSync(enabled: boolean, snap: CardSnapshot, lang: Lang, raceUrl: string): string {
   if (!enabled) return htmlJoinCta(lang)
   const g = snap.global
-  return htmlJoined(g != null, g ?? { rank: 0, topPct: 0, race7d: 0 }, lang)
+  return htmlJoined(g != null, g ?? { rank: 0, topPct: 0, race7d: 0 }, lang, raceUrl)
 }
 
 /**
@@ -527,10 +534,19 @@ function htmlSync(enabled: boolean, snap: CardSnapshot, lang: Lang): string {
 export function renderCardHtml(
   snap: CardSnapshot,
   enabled: boolean,
-  opts: { style?: boolean; size?: 'sm' | 'lg'; locale?: string; range?: '7d' | '30d' | 'day'; selectedYmd?: string } = { style: false },
+  opts: {
+    style?: boolean
+    size?: 'sm' | 'lg'
+    locale?: string
+    range?: '7d' | '30d' | 'day'
+    selectedYmd?: string
+    /** View race 链接（self-host：调用方从 settings 的 endpoint 派生；缺省官方主站）。 */
+    raceUrl?: string
+  } = { style: false },
 ): string {
   ensureCardStyles()
   const lang = resolveLang(opts.locale)
+  const raceUrl = opts.raceUrl ?? RACE_URL_DEFAULT
 
   const t = snap.today
   const chips: string[] = []
@@ -567,7 +583,7 @@ export function renderCardHtml(
     heroBlock,
     midBlock,
     htmlHistorySection(snap, lang, opts.range ?? '7d', opts.selectedYmd),
-    htmlSync(enabled, snap, lang),
+    htmlSync(enabled, snap, lang, raceUrl),
     '<div class="mk-foot"><span>' + tr(lang, 'footerUpdated', { t: hhmm }) + '</span></div>',
     '</div>',
   ].join('')
