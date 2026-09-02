@@ -127,10 +127,12 @@ interface CardShellProps {
   scope: SettingsScopeLike
   onClose?: () => void
   anchored: boolean
+  /** lg 变体内联（设置 tab 页全宽大卡）；与居中模态共用同一套 lg 排版。 */
+  lg?: boolean
 }
 
 export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
-  const { scope, onClose, anchored } = props
+  const { scope, onClose, anchored, lg } = props
   const tick = useTickSource(dataTick.subscribe)
   // settings mirror 变更（Join/Leave 写入、同步后宿主触碰文档）也推进重渲染。
   // ⚠️ scope.subscribe 是类方法（内部 this.store）——必须绑定 this 再交给 hook；
@@ -161,7 +163,7 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     html = renderCardHtml(
       snap,
       scopeEnabled(scope),
-      anchored
+      anchored || lg
         ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd, raceUrl }
         : { locale: activeLocale, range, selectedYmd: selYmd, raceUrl },
     )
@@ -291,6 +293,57 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
 
 // ── 侧栏脚部动作组件（wide 行态 / rail 图标态）────────────────
 
+/**
+ * 脚部入口样式 —— 对齐「插件市场」launcher（宿主 Button ghost 变体）的观感：
+ *   - 字色 label-primary（Button.module.css .button 同款；此前 inline 的
+ *     label-secondary 是「偏灰」的根因）
+ *   - hover 背景 --dsw-alias-interactive-bg-hover（.ghost:hover 同款，视觉上
+ *     即用户感知的「移上去有阴影」）；active 用 bg-active
+ *   - inline style 表达不了 :hover/:active 伪类 —— 必须走注入 CSS。
+ *   注入沿用 card-html 的 data-plugin-css 去重范式。
+ */
+const PANEL_STYLE_ID = 'madrank/panel'
+
+const PANEL_CSS = [
+'.madrank-foot{position:relative;flex:1 1 auto;min-width:0}',
+'/* 包裹层铺满 footerActions 行（flex 项默认 shrink-wrap，是高亮不随侧栏宽度铺满的根因）；',
+'   rail 态交还定宽，由宿主 footerActions 的 justify-content:center 居中 */',
+'.madrank-foot[data-wide="false"]{flex:0 0 auto;width:auto}',
+'/* 几何 1:1 对齐 .dshMarketLauncher：calc(100%+4px)+margin -2px 出血 = 高亮随侧栏全宽；',
+'   rail 态 36px 圆形（同 launcher [data-wide=false]） */',
+'.madrank-foot-btn{flex:none;box-sizing:border-box;display:flex;align-items:center;',
+'  width:calc(100% + 4px);height:42px;margin:4px -2px;padding:0 10px 0 8px;gap:8px;',
+'  justify-content:flex-start;overflow:hidden;border:none;border-radius:12px;',
+'  background:transparent;color:var(--dsw-alias-label-primary);font:inherit;',
+'  font-size:14px;line-height:22px;cursor:pointer;text-align:left;white-space:nowrap}',
+'.madrank-foot-btn[data-wide="false"]{width:36px;height:36px;margin:8px 0 10px;',
+'  justify-content:center;gap:0;padding:0;border-radius:50%}',
+'/* hover/active：与宿主 ghost Button 完全同 token */',
+'.madrank-foot-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+'.madrank-foot-btn:active{background:var(--dsw-alias-interactive-bg-active,',
+'  var(--dsw-alias-interactive-bg-hover))}',
+'/* 展开态：保持按下底色，不再额外 hover 叠加 */',
+'.madrank-foot-btn[data-open="true"]{background:var(--dsw-alias-interactive-bg-active,',
+'  var(--dsw-alias-interactive-bg-hover))}',
+'.madrank-foot-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);',
+'  outline-offset:-2px}',
+'.madrank-foot-count{margin-left:6px;opacity:.75;font-variant-numeric:tabular-nums}',
+'@media (prefers-reduced-motion:no-preference){',
+'  .madrank-foot-btn{transition:background .14s var(--ds-ease-in-out,ease-in-out)}}',
+].join('')
+
+/** 注入一次（data-plugin-css 去重；与 card-html ensureCardStyles 同范式）。 */
+function ensurePanelStyles(): void {
+  if (typeof document === 'undefined') return
+  const tagId = 'madrank-usage/' + PANEL_STYLE_ID
+  if (document.querySelector('style[data-plugin-css="' + JSON.stringify(tagId).slice(1, -1) + '"]')) return
+  const tag = document.createElement('style')
+  tag.dataset.plugin = 'madrank-usage'
+  tag.dataset.pluginCss = tagId
+  tag.textContent = PANEL_CSS
+  document.head.appendChild(tag)
+}
+
 function fmtCompact(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return ''
   if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B'
@@ -345,35 +398,26 @@ export function MadrankFooterCell(props: FooterCellProps): ReturnType<typeof cre
 
   return createElement(
     'div',
-    { style: { position: 'relative', pointerEvents: 'auto' } },
+    { className: 'madrank-foot', 'data-wide': String(wide), style: { pointerEvents: 'auto' } },
+    // 样式走 PANEL_CSS（ghost Button 同款 label-primary + hover 底色）；
+    // inline style 表达不了 :hover —— 「移上去没阴影」的根因就是全 inline。
     createElement('button', {
       type: 'button',
+      className: 'madrank-foot-btn',
+      'data-wide': String(wide),
+      'data-open': String(open),
       onClick: () => setOpen(o => !o),
       title: tr(cardLang(), 'cardTitle'),
       'aria-label': tr(cardLang(), 'cardTitle'),
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        width: '100%',
-        padding: wide ? '6px 10px' : '6px 0',
-        justifyContent: wide ? 'flex-start' : 'center',
-        border: 'none',
-        borderRadius: '8px',
-        background: open ? 'var(--dsw-alias-interactive-bg-hover, transparent)' : 'transparent',
-        color: 'var(--dsw-alias-label-secondary, #b9b9bf)',
-        font: 'inherit',
-        fontSize: wide ? '12px' : '11px',
-        cursor: 'pointer',
-        textAlign: 'left',
-      } as Record<string, string>,
+      'aria-expanded': open,
     },
       createElement(TrendIcon),
       wide ? createElement('span', { style: {
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          fontVariantNumeric: 'tabular-nums',
+          display: 'block',
+          minWidth: 0,
+          overflow: 'hidden', textOverflow: 'ellipsis',
         } },
-        'MADRank', todayShort ? createElement('span', { style: { marginLeft: '6px', opacity: .75 } }, todayShort) : null,
+        'MADRank', todayShort ? createElement('span', { className: 'madrank-foot-count' }, todayShort) : null,
       ) : null,
     ),
     open ? createElement(CardShell, {
@@ -384,12 +428,32 @@ export function MadrankFooterCell(props: FooterCellProps): ReturnType<typeof cre
   )
 }
 
+// ── 设置分区页（settings.section 槽）─────────────────────────
+
+export interface SettingsTabProps {
+  scope: SettingsScopeLike
+}
+
+/**
+ * Settings 主导航的 MADRank 顶级分区页（同「桌面设置 / Agent 预设」形态）：
+ * lg 变体内联全宽 —— 与脚部模态同一张卡，但随设置内容区自适应
+ * （≥620px 容器自动横排同步区，见 card-html 的 @container 规则）。注册在 index.ts。
+ */
+export function MadrankSettingsTab(props: SettingsTabProps): ReturnType<typeof createElement> {
+  return createElement(
+    CardErrorBoundary,
+    null,
+    createElement(CardShell, { scope: props.scope, anchored: false, lg: true }),
+  )
+}
+
 // ── 注册入口（由 index.ts 的 apply 调用）─────────────────────
 
 export function registerFooterEntry(
   slots: { inject(slot: string, register: () => void): void; register(cfg: Record<string, unknown>, component: unknown): void },
   scope: SettingsScopeLike,
 ): void {
+  ensurePanelStyles()
   slots.inject('sidebar.footer.action', () => {
     slots.register(
       {

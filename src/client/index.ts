@@ -10,7 +10,7 @@
 import { createElement } from 'react'
 import type { LocaleFaceLike } from './card-html.ts'
 import { cardDataFromList, decodeSettingsSection } from './card-data.ts'
-import { CardErrorBoundary, CardShell, dataTick, registerFooterEntry, setActiveLocale } from './panel.ts'
+import { CardErrorBoundary, CardShell, dataTick, MadrankSettingsTab, registerFooterEntry, setActiveLocale } from './panel.ts'
 
 export const SETTINGS_NS = 'madrank-usage'
 
@@ -27,7 +27,7 @@ export type {
 } from './card-html.ts'
 export type { CardGlobal } from '../global-rank.ts'
 export { decodeSettingsSection } from './card-data.ts'
-export { MadrankFooterCell } from './panel.ts'
+export { MadrankFooterCell, MadrankSettingsTab } from './panel.ts'
 
 interface SessionsFaceLike {
   list: { getSnapshot(): unknown; subscribe(fn: () => void): () => void }
@@ -100,6 +100,24 @@ export function apply(ctx: ClientCtxLike): void {
     }, () => createElement(CardErrorBoundary, null, createElement(CardShell, { scope, anchored: false })))
   })
 
-  // 2) 侧栏脚部动作（Settings 旁；点击锚定展开同一张卡）
+  // 2) Settings 主导航顶级分区（同「桌面设置 / Agent 预设」的 settings.section 槽：
+  //    宿主 settings-general 用 slots.entries('settings.section') 生成导航行，
+  //    renderSlot("settings.section", { close }, { only: id }) 渲染分区页；
+  //    label 经 resolveSlotLabel 解析，string | () => string 皆可。
+  //    既有 order：general=0 / models=10 / plugins=15 / agent-presets=20 → MADRank 收尾）
+  slots.inject('settings.section', () => {
+    slots.register(
+      {
+        name: 'settings.section',
+        id: 'madrank-usage',
+        order: 30,
+        label: 'MADRank',
+      },
+      () => createElement(CardErrorBoundary, null,
+        createElement(MadrankSettingsTab, { scope })),
+    )
+  })
+
+  // 3) 侧栏脚部动作（Settings 旁；点击锚定展开同一张卡）
   registerFooterEntry(slots, scope)
 }

@@ -976,7 +976,7 @@ window.__ModuleLoader__.load({
 			}
 		};
 		function CardShell(props) {
-			const { scope, onClose, anchored } = props;
+			const { scope, onClose, anchored, lg } = props;
 			const tick = useTickSource(dataTick.subscribe);
 			const scopeTick = useTickSource((0, react.useMemo)(() => scope && typeof scope.subscribe === "function" ? scope.subscribe.bind(scope) : void 0, [scope]));
 			const [, force] = (0, react.useState)(0);
@@ -992,7 +992,7 @@ window.__ModuleLoader__.load({
 					...base,
 					...fixture,
 					global
-				}, scopeEnabled(scope), anchored ? {
+				}, scopeEnabled(scope), anchored || lg ? {
 					size: "lg",
 					locale: activeLocale,
 					range,
@@ -1127,6 +1127,44 @@ window.__ModuleLoader__.load({
 				dangerouslySetInnerHTML: { __html: html }
 			});
 		}
+		const PANEL_CSS = [
+			".madrank-foot{position:relative;flex:1 1 auto;min-width:0}",
+			"/* 包裹层铺满 footerActions 行（flex 项默认 shrink-wrap，是高亮不随侧栏宽度铺满的根因）；",
+			"   rail 态交还定宽，由宿主 footerActions 的 justify-content:center 居中 */",
+			".madrank-foot[data-wide=\"false\"]{flex:0 0 auto;width:auto}",
+			"/* 几何 1:1 对齐 .dshMarketLauncher：calc(100%+4px)+margin -2px 出血 = 高亮随侧栏全宽；",
+			"   rail 态 36px 圆形（同 launcher [data-wide=false]） */",
+			".madrank-foot-btn{flex:none;box-sizing:border-box;display:flex;align-items:center;",
+			"  width:calc(100% + 4px);height:42px;margin:4px -2px;padding:0 10px 0 8px;gap:8px;",
+			"  justify-content:flex-start;overflow:hidden;border:none;border-radius:12px;",
+			"  background:transparent;color:var(--dsw-alias-label-primary);font:inherit;",
+			"  font-size:14px;line-height:22px;cursor:pointer;text-align:left;white-space:nowrap}",
+			".madrank-foot-btn[data-wide=\"false\"]{width:36px;height:36px;margin:8px 0 10px;",
+			"  justify-content:center;gap:0;padding:0;border-radius:50%}",
+			"/* hover/active：与宿主 ghost Button 完全同 token */",
+			".madrank-foot-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+			".madrank-foot-btn:active{background:var(--dsw-alias-interactive-bg-active,",
+			"  var(--dsw-alias-interactive-bg-hover))}",
+			"/* 展开态：保持按下底色，不再额外 hover 叠加 */",
+			".madrank-foot-btn[data-open=\"true\"]{background:var(--dsw-alias-interactive-bg-active,",
+			"  var(--dsw-alias-interactive-bg-hover))}",
+			".madrank-foot-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);",
+			"  outline-offset:-2px}",
+			".madrank-foot-count{margin-left:6px;opacity:.75;font-variant-numeric:tabular-nums}",
+			"@media (prefers-reduced-motion:no-preference){",
+			"  .madrank-foot-btn{transition:background .14s var(--ds-ease-in-out,ease-in-out)}}"
+		].join("");
+		/** 注入一次（data-plugin-css 去重；与 card-html ensureCardStyles 同范式）。 */
+		function ensurePanelStyles() {
+			if (typeof document === "undefined") return;
+			const tagId = "madrank-usage/madrank/panel";
+			if (document.querySelector("style[data-plugin-css=\"" + JSON.stringify(tagId).slice(1, -1) + "\"]")) return;
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "madrank-usage";
+			tag.dataset.pluginCss = tagId;
+			tag.textContent = PANEL_CSS;
+			document.head.appendChild(tag);
+		}
 		function fmtCompact(n) {
 			if (!Number.isFinite(n) || n <= 0) return "";
 			if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
@@ -1169,45 +1207,44 @@ window.__ModuleLoader__.load({
 			useTickSource(dataTick.subscribe);
 			const t = dataTick.get().today;
 			const todayShort = t ? fmtCompact(t.primaryTokens) : "";
-			return (0, react.createElement)("div", { style: {
-				position: "relative",
-				pointerEvents: "auto"
-			} }, (0, react.createElement)("button", {
+			return (0, react.createElement)("div", {
+				className: "madrank-foot",
+				"data-wide": String(wide),
+				style: { pointerEvents: "auto" }
+			}, (0, react.createElement)("button", {
 				type: "button",
+				className: "madrank-foot-btn",
+				"data-wide": String(wide),
+				"data-open": String(open),
 				onClick: () => setOpen((o) => !o),
 				title: tr(cardLang(), "cardTitle"),
 				"aria-label": tr(cardLang(), "cardTitle"),
-				style: {
-					display: "flex",
-					alignItems: "center",
-					gap: "6px",
-					width: "100%",
-					padding: wide ? "6px 10px" : "6px 0",
-					justifyContent: wide ? "flex-start" : "center",
-					border: "none",
-					borderRadius: "8px",
-					background: open ? "var(--dsw-alias-interactive-bg-hover, transparent)" : "transparent",
-					color: "var(--dsw-alias-label-secondary, #b9b9bf)",
-					font: "inherit",
-					fontSize: wide ? "12px" : "11px",
-					cursor: "pointer",
-					textAlign: "left"
-				}
+				"aria-expanded": open
 			}, (0, react.createElement)(TrendIcon), wide ? (0, react.createElement)("span", { style: {
-				whiteSpace: "nowrap",
+				display: "block",
+				minWidth: 0,
 				overflow: "hidden",
-				textOverflow: "ellipsis",
-				fontVariantNumeric: "tabular-nums"
-			} }, "MADRank", todayShort ? (0, react.createElement)("span", { style: {
-				marginLeft: "6px",
-				opacity: .75
-			} }, todayShort) : null) : null), open ? (0, react.createElement)(CardShell, {
+				textOverflow: "ellipsis"
+			} }, "MADRank", todayShort ? (0, react.createElement)("span", { className: "madrank-foot-count" }, todayShort) : null) : null), open ? (0, react.createElement)(CardShell, {
 				scope,
 				anchored: true,
 				onClose: () => setOpen(false)
 			}) : null);
 		}
+		/**
+		* Settings 主导航的 MADRank 顶级分区页（同「桌面设置 / Agent 预设」形态）：
+		* lg 变体内联全宽 —— 与脚部模态同一张卡，但随设置内容区自适应
+		* （≥620px 容器自动横排同步区，见 card-html 的 @container 规则）。注册在 index.ts。
+		*/
+		function MadrankSettingsTab(props) {
+			return (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(CardShell, {
+				scope: props.scope,
+				anchored: false,
+				lg: true
+			}));
+		}
 		function registerFooterEntry(slots, scope) {
+			ensurePanelStyles();
 			slots.inject("sidebar.footer.action", () => {
 				slots.register({
 					name: "sidebar.footer.action",
@@ -1295,11 +1332,20 @@ window.__ModuleLoader__.load({
 					anchored: false
 				})));
 			});
+			slots.inject("settings.section", () => {
+				slots.register({
+					name: "settings.section",
+					id: "madrank-usage",
+					order: 30,
+					label: "MADRank"
+				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsTab, { scope })));
+			});
 			registerFooterEntry(slots, scope);
 		}
 		//#endregion
 		exports.CARD_SETTINGS_NS = SETTINGS_NS;
 		exports.MadrankFooterCell = MadrankFooterCell;
+		exports.MadrankSettingsTab = MadrankSettingsTab;
 		exports.SETTINGS_NS = SETTINGS_NS$1;
 		exports.apply = apply;
 		exports.decodeSettingsSection = decodeSettingsSection;
