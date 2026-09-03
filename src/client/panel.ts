@@ -56,7 +56,7 @@ function cardLang(): Lang {
 /** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
 function scopeValue(
   scope: SettingsScopeLike | undefined,
-): { enabled?: boolean; endpoint?: string; global?: CardSnapshot['global'] } | undefined {
+): { enabled?: boolean; endpoint?: string; global?: CardSnapshot['global']; deleteRequested?: number; deletedEpoch?: number } | undefined {
   try {
     return scope?.getSnapshot?.()?.value
   } catch {
@@ -160,12 +160,15 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const { global, raceUrl } = composeGlobalView(fixture, sv)
     const snap: CardSnapshot = { ...base, ...fixture, global }
     // 模态容器大：卡片用 lg 变体（解锁 320px 固定宽 + 双栏中段）
+    // 删除通道状态：deleteRequested > deletedEpoch = 进行中；deletedEpoch 更新 = 完成
+    const delReq = typeof sv?.deleteRequested === 'number' ? sv.deleteRequested : 0
+    const delDone = typeof sv?.deletedEpoch === 'number' ? sv.deletedEpoch : 0
     html = renderCardHtml(
       snap,
       scopeEnabled(scope),
       anchored || lg
-        ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd, raceUrl }
-        : { locale: activeLocale, range, selectedYmd: selYmd, raceUrl },
+        ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd, raceUrl, deleteState: { pending: delReq > delDone && delReq > 0, done: delDone > delReq } }
+        : { locale: activeLocale, range, selectedYmd: selYmd, raceUrl, deleteState: { pending: delReq > delDone && delReq > 0, done: delDone > delReq } },
     )
   } catch (e) {
     console.warn('[madrank] card render fallback', e)
@@ -183,6 +186,21 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const onLeave = (): void => { void Promise.resolve(scope.unset('enabled')).catch(() => {}); force(x => x + 1) }
     join?.addEventListener('click', onJoin)
     leave?.addEventListener('click', onLeave)
+
+    // 删除通道（两步确认）：第一次点 = 进入确认态（改文案 + data-armed）；
+    // 第二次点 = 写 deleteRequested（settings 命令缝）→ 宿主 tick 执行远端删除。
+    const del = rootEl.querySelector('[data-madrank-delete]') as HTMLButtonElement | null
+    const onDelete = (): void => {
+      if (del == null) return
+      if (del.getAttribute('data-armed') !== '1') {
+        del.setAttribute('data-armed', '1')
+        del.textContent = tr(cardLang(), 'deleteConfirmBtn')
+        return
+      }
+      void Promise.resolve(scope.set('deleteRequested', Date.now())).catch(() => {})
+      force(x => x + 1)
+    }
+    del?.addEventListener('click', onDelete)
 
     // 范围切换 + 直方柱点击进入单日（同 join/leave 的 data-attr 绑定模式）
     const snap = dataTick.get()
@@ -213,6 +231,7 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     return () => {
       join?.removeEventListener('click', onJoin)
       leave?.removeEventListener('click', onLeave)
+      del?.removeEventListener('click', onDelete)
       rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
       dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
     }

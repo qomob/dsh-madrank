@@ -359,6 +359,11 @@ window.__ModuleLoader__.load({
 				topChip: "TOP {x}%",
 				onlyParticipant: "Only participant",
 				race7dLabel: "Ranked · 7-day uncached",
+				activeDays7: "{n}/7 days",
+				deleteBtn: "Delete synced data",
+				deleteConfirmBtn: "Confirm delete",
+				deletePending: "Deleting…",
+				deleteDone: "Synced data deleted from MADRank.",
 				shareFine: "One anonymous daily number; a random code stands for you; chats never leave your device.",
 				joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
 				viewRace: "View race",
@@ -393,6 +398,11 @@ window.__ModuleLoader__.load({
 				topChip: "前 {x}%",
 				onlyParticipant: "当前唯一参与者",
 				race7dLabel: "计入全球排名 · 7 日未缓存",
+				activeDays7: "{n}/7 天",
+				deleteBtn: "删除已同步数据",
+				deleteConfirmBtn: "确认删除",
+				deletePending: "删除中…",
+				deleteDone: "已从 MADRank 删除已同步数据。",
 				shareFine: "每天只上报一条匿名汇总数字；身份只是随机代号，不关联任何账号；聊天内容永不上传。",
 				joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
 				viewRace: "查看排名赛",
@@ -803,12 +813,13 @@ window.__ModuleLoader__.load({
 		* 有排名：#N + TOP x% + 7-day tokens；未出排名：诚实空态（等首个日级 sync）。
 		* 大按钮退场 \u2192 View race 链接 + 轻量 Leave（panel.ts 仍按 data-madrank-disable 绑定）。
 		*/
-		function htmlJoined(hasRank, global, lang, raceUrl) {
+		function htmlJoined(hasRank, global, lang, raceUrl, activeDays, del) {
 			const sole = hasRank && global.participants === 1;
 			const rankBlock = hasRank ? [
 				"<div class=\"mk-rankrow\">",
 				"<span class=\"mk-big\">#" + global.rank.toLocaleString("en-US") + "</span>",
 				"<span class=\"mk-chip\" data-tone=\"hot\">" + (sole ? tr(lang, "onlyParticipant") : tr(lang, "topChip", { x: global.topPct.toFixed(1) })) + "</span>",
+				"<span class=\"mk-chip\">" + tr(lang, "activeDays7", { n: Math.min(7, Math.max(0, activeDays)) }) + "</span>",
 				"</div>",
 				"<div class=\"mk-sub\"><span class=\"mk-rlab\">" + tr(lang, "race7dLabel") + "</span><b>" + fmtTokens(global.race7d) + "</b></div>"
 			].join("") : "<p class=\"mk-fine\">" + tr(lang, "joinedPending") + "</p>";
@@ -821,18 +832,21 @@ window.__ModuleLoader__.load({
 				"<a class=\"mk-race\" href=\"" + raceUrl + "\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
 				"<button type=\"button\" class=\"mk-quiet\" data-madrank-disable>" + tr(lang, "leave") + "</button>",
 				"</div>",
+				del.pending || del.done ? "<p class=\"mk-fine\" data-madrank-delete-state=\"" + (del.pending ? "pending" : "done") + "\">" + tr(lang, del.pending ? "deletePending" : "deleteDone") + "</p>" : "",
+				"<button type=\"button\" class=\"mk-quiet\" data-madrank-delete>" + tr(lang, "deleteBtn") + "</button>",
 				"</div>"
 			].join("");
 		}
-		function htmlSync(enabled, snap, lang, raceUrl) {
-			if (!enabled) return htmlJoinCta(lang);
+		function htmlSync(enabled, snap, lang, raceUrl, del) {
+			if (!enabled && !del.pending && !del.done) return htmlJoinCta(lang);
 			const g = snap.global;
+			const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length;
 			return htmlJoined(g != null, g ?? {
 				rank: 0,
 				topPct: 0,
 				race7d: 0,
 				participants: 0
-			}, lang, raceUrl);
+			}, lang, raceUrl, activeDays, del);
 		}
 		/**
 		* 纯渲染：卡片 HTML（React 壳与预览工具共用）。
@@ -873,7 +887,10 @@ window.__ModuleLoader__.load({
 				heroBlock,
 				midBlock,
 				htmlHistorySection(snap, lang, opts.range ?? "7d", opts.selectedYmd),
-				htmlSync(enabled, snap, lang, raceUrl),
+				htmlSync(enabled, snap, lang, raceUrl, opts.deleteState ?? {
+					pending: false,
+					done: false
+				}),
 				"<div class=\"mk-foot\"><span>" + tr(lang, "footerUpdated", { t: hhmm }) + "</span></div>",
 				"</div>"
 			].join("");
@@ -991,22 +1008,34 @@ window.__ModuleLoader__.load({
 			try {
 				const base = dataTick.get();
 				const fixture = (typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ : void 0) ?? {};
-				const { global, raceUrl } = composeGlobalView(fixture, scopeValue(scope));
-				html = renderCardHtml({
+				const sv = scopeValue(scope);
+				const { global, raceUrl } = composeGlobalView(fixture, sv);
+				const snap = {
 					...base,
 					...fixture,
 					global
-				}, scopeEnabled(scope), anchored || lg ? {
+				};
+				const delReq = typeof sv?.deleteRequested === "number" ? sv.deleteRequested : 0;
+				const delDone = typeof sv?.deletedEpoch === "number" ? sv.deletedEpoch : 0;
+				html = renderCardHtml(snap, scopeEnabled(scope), anchored || lg ? {
 					size: "lg",
 					locale: activeLocale,
 					range,
 					selectedYmd: selYmd,
-					raceUrl
+					raceUrl,
+					deleteState: {
+						pending: delReq > delDone && delReq > 0,
+						done: delDone > delReq
+					}
 				} : {
 					locale: activeLocale,
 					range,
 					selectedYmd: selYmd,
-					raceUrl
+					raceUrl,
+					deleteState: {
+						pending: delReq > delDone && delReq > 0,
+						done: delDone > delReq
+					}
 				});
 			} catch (e) {
 				console.warn("[madrank] card render fallback", e);
@@ -1027,6 +1056,18 @@ window.__ModuleLoader__.load({
 				};
 				join?.addEventListener("click", onJoin);
 				leave?.addEventListener("click", onLeave);
+				const del = rootEl.querySelector("[data-madrank-delete]");
+				const onDelete = () => {
+					if (del == null) return;
+					if (del.getAttribute("data-armed") !== "1") {
+						del.setAttribute("data-armed", "1");
+						del.textContent = tr(cardLang(), "deleteConfirmBtn");
+						return;
+					}
+					Promise.resolve(scope.set("deleteRequested", Date.now())).catch(() => {});
+					force((x) => x + 1);
+				};
+				del?.addEventListener("click", onDelete);
 				const snap = dataTick.get();
 				const fallbackDay = () => {
 					const hist = snap.history;
@@ -1056,6 +1097,7 @@ window.__ModuleLoader__.load({
 				return () => {
 					join?.removeEventListener("click", onJoin);
 					leave?.removeEventListener("click", onLeave);
+					del?.removeEventListener("click", onDelete);
 					rangeBtns.forEach((b) => b.removeEventListener("click", onRange));
 					dayBars.forEach((b) => b.removeEventListener("click", onDayBar));
 				};

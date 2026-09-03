@@ -494,6 +494,8 @@ function htmlJoined(
   global: { rank: number; topPct: number; race7d: number; participants?: number },
   lang: Lang,
   raceUrl: string,
+  activeDays: number,
+  del: { pending: boolean; done: boolean },
 ): string {
   // GAP-D 信任修补：#1/1 时 TOP 100% 读作垫底 —— 唯一参与者改显 onlyParticipant
   const sole = hasRank && global.participants === 1
@@ -505,6 +507,7 @@ function htmlJoined(
           (sole
             ? tr(lang, 'onlyParticipant')
             : tr(lang, 'topChip', { x: global.topPct.toFixed(1) })) + '</span>',
+        '<span class="mk-chip">' + tr(lang, 'activeDays7', { n: Math.min(7, Math.max(0, activeDays)) }) + '</span>',
         '</div>',
         '<div class="mk-sub"><span class="mk-rlab">' + tr(lang, 'race7dLabel') + '</span><b>' +
           fmtTokens(global.race7d) + '</b></div>',
@@ -520,14 +523,32 @@ function htmlJoined(
       tr(lang, 'viewRace') + ' <span aria-hidden="true">\u2192</span></a>',
     '<button type="button" class="mk-quiet" data-madrank-disable>' + tr(lang, 'leave') + '</button>',
     '</div>',
+    (del.pending || del.done
+      ? '<p class="mk-fine" data-madrank-delete-state="' + (del.pending ? 'pending' : 'done') + '">' +
+          tr(lang, del.pending ? 'deletePending' : 'deleteDone') + '</p>'
+      : ''),
+    '<button type="button" class="mk-quiet" data-madrank-delete>' + tr(lang, 'deleteBtn') + '</button>',
     '</div>',
   ].join('')
 }
 
-function htmlSync(enabled: boolean, snap: CardSnapshot, lang: Lang, raceUrl: string): string {
-  if (!enabled) return htmlJoinCta(lang)
+function htmlSync(
+  enabled: boolean,
+  snap: CardSnapshot,
+  lang: Lang,
+  raceUrl: string,
+  del: { pending: boolean; done: boolean },
+): string {
+  if (!enabled && !del.pending && !del.done) return htmlJoinCta(lang)
   const g = snap.global
-  return htmlJoined(g != null, g ?? { rank: 0, topPct: 0, race7d: 0, participants: 0 }, lang, raceUrl)
+  // Active Days：本机近 7 个已完成 UTC 日中有用量数据的天数（本地真实计数，
+  // 与站点 /rank 的 x/7 days 辅助信号同口径；纯展示，绝不参与排名公式）。
+  const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length
+  return htmlJoined(
+    g != null,
+    g ?? { rank: 0, topPct: 0, race7d: 0, participants: 0 },
+    lang, raceUrl, activeDays, del,
+  )
 }
 
 /**
@@ -546,6 +567,8 @@ export function renderCardHtml(
     selectedYmd?: string
     /** View race 链接（self-host：调用方从 settings 的 endpoint 派生；缺省官方主站）。 */
     raceUrl?: string
+    /** 删除通道状态（panel.ts 从 settings mirror 的 deleteRequested/deletedEpoch 派生）。 */
+    deleteState?: { pending: boolean; done: boolean }
   } = { style: false },
 ): string {
   ensureCardStyles()
@@ -587,7 +610,7 @@ export function renderCardHtml(
     heroBlock,
     midBlock,
     htmlHistorySection(snap, lang, opts.range ?? '7d', opts.selectedYmd),
-    htmlSync(enabled, snap, lang, raceUrl),
+    htmlSync(enabled, snap, lang, raceUrl, opts.deleteState ?? { pending: false, done: false }),
     '<div class="mk-foot"><span>' + tr(lang, 'footerUpdated', { t: hhmm }) + '</span></div>',
     '</div>',
   ].join('')

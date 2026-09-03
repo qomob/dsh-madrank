@@ -22,7 +22,7 @@ import type { MadrankState } from './fold.ts'
 import { buildCardSnapshot } from './snapshot.ts'
 import type { CtxLike, ProjectionDefinitionLike } from './compat.ts'
 import { UsageStore } from './store.ts'
-import { syncPendingDays } from './sync.ts'
+import { deleteRemoteData, syncPendingDays } from './sync.ts'
 import {
   cardGlobalFromRecord,
   recordFromRace,
@@ -46,6 +46,8 @@ const SettingsSchema = z.object({
   enabled: z.boolean().default(false),
   /** MADRank ingest 端点。 */
   endpoint: z.string().default('https://madrank.ai/api/usage/ingest'),
+  /** 删除通道命令字段（卡片两步确认后写入；宿主 tick 执行后回写 0）。 */
+  deleteRequested: z.number().int().nonnegative().optional(),
 })
 
 export type Settings = z.infer<typeof SettingsSchema>
@@ -69,6 +71,26 @@ function dataDir(): string {
 
 function installIdPath(): string {
   return join(dataDir(), 'installation-id')
+}
+
+/** 删除完成时间戳（settings mirror 注入 deletedEpoch 用；持久化跨进程）。 */
+let cachedDeletedEpoch: number | null = null
+function deletedEpochPath(): string {
+  return join(dataDir(), 'deleted-epoch')
+}
+function readDeletedEpoch(): number {
+  if (cachedDeletedEpoch !== null) return cachedDeletedEpoch
+  try {
+    cachedDeletedEpoch = parseInt(readFileSync(deletedEpochPath(), 'utf8').trim(), 10) || 0
+  } catch {
+    cachedDeletedEpoch = 0
+  }
+  return cachedDeletedEpoch
+}
+function writeDeletedEpoch(epoch: number): void {
+  cachedDeletedEpoch = epoch
+  mkdirSync(dataDir(), { recursive: true })
+  writeFileSync(deletedEpochPath(), String(epoch))
 }
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -272,6 +294,25 @@ function start(
   // 3) opt-in 日级批量同步检查（≤1 次/分钟；只碰已结束的 UTC 日）
   const tick = () => {
     const s = settingsSource()
+    // 3a) 删除通道（隐私审计缺口 #4）：独立于 enabled——退出排名后仍可删。
+    // 成功后清排名镜像 + 记 deletedEpoch + 回写 deleteRequested=0（raw 层触碰
+    // → mirror revision bump → 卡片立即显示完成态）。失败静默保留标志，下轮重试
+    // （服务端幂等）。语义：只删远端；已上传标记保留，旧数据不会自动重传。
+    const delReq = typeof s.deleteRequested === 'number' ? s.deleteRequested : 0
+    if (delReq > 0 && s.endpoint) {
+      void deleteRemoteData(s.endpoint, getAnonId, globalThis.fetch.bind(globalThis))
+        .then((ok) => {
+          if (!ok) return
+          storeHolder.globalRank = null
+          try { writeDeletedEpoch(Date.now()) } catch { /* 内存态兜底 */ }
+          void Promise.resolve(storeHolder.settingsScope?.update?.({ deleteRequested: 0 }))
+            .catch(() => {})
+          touchSettingsDocument()
+          log.info('remote usage data deleted per user request')
+        })
+        .catch(() => undefined)
+      return // 删除轮不与同步轮混跑
+    }
     if (!s.enabled || !s.endpoint || !storeHolder.store) return
     void syncPendingDays(store, s, getAnonId, globalThis.fetch.bind(globalThis), (race) => {
       // ingest 响应携带按本机 anonId 重算的 7 日名次：持久化 + 内存镜像 +
@@ -340,7 +381,7 @@ function declareSettingsSection(ctx: CtxLike & Record<string, unknown>, log: { i
         const global = parsed.enabled && rec && sameOrigin(rec.endpoint, parsed.endpoint)
           ? cardGlobalFromRecord(rec)
           : null
-        return { ...parsed, global }
+        return { ...parsed, global, deletedEpoch: readDeletedEpoch() }
       },
       {
         toJSON: () => ({

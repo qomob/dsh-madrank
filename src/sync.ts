@@ -38,6 +38,9 @@ export function yesterdayYmd(now = Date.now()): string {
  */
 export const USAGE_SCHEMA_VERSION = 1
 
+/** 随 payload 上报的插件版本（服务端 source_client_version 列，可选字段、截 64 字符）。 */
+export const USAGE_CLIENT_VERSION = '0.1.1'
+
 /**
  * 组装某一天的 payload（远端 schema 的唯一来源）。
  * ⚠️ wire 形状以服务端 lib/usage/protocol.ts 冻结契约为准：days[].models 是
@@ -53,6 +56,7 @@ export function composeDayPayload(
 ): {
   anonId: string
   schemaVersion: typeof USAGE_SCHEMA_VERSION
+  sourceClientVersion: string
   days: Array<{
     date: string
     models: Record<string, { input: number; output: number; cacheRead: number; requests: number }>
@@ -70,8 +74,32 @@ export function composeDayPayload(
   return {
     anonId,
     schemaVersion: USAGE_SCHEMA_VERSION,
+    sourceClientVersion: USAGE_CLIENT_VERSION,
     days: [{ date: ymd, models }],
   }
+}
+
+/** 由 ingest 端点派生删除端点（同源同路径族）。 */
+export function deleteEndpointFrom(endpoint: string): string {
+  return endpoint.replace(/\/api\/usage\/ingest\/?$/, '/api/usage/delete')
+}
+
+/**
+ * 删除本机在 MADRank 的全部匿名日级行（隐私审计缺口 #4 的插件半侧）。
+ * 返回 true = 服务端确认成功（幂等：已删除/不存在同样 ok）。
+ */
+export async function deleteRemoteData(
+  endpoint: string,
+  getAnonId: AnonIdProvider,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  const url = deleteEndpointFrom(endpoint)
+  const res = await fetchImpl(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ anonId: getAnonId() }),
+  })
+  return res.ok
 }
 
 /**

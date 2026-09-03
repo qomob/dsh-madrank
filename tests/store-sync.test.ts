@@ -86,6 +86,9 @@ describe('sync（日级批量、只传已结束的日）', () => {
       'deepseek/chat': { inputTokens: 100, outputTokens: 40, cacheReadTokens: 900, cacheWriteTokens: 10, requests: 2 },
     })
     expect(payload.schemaVersion).toBe(1) // Usage Protocol v1 冻结字段
+    expect(typeof payload.sourceClientVersion).toBe('string') // 服务端 source_client_version（可选字段）
+    expect(payload.sourceClientVersion!.length).toBeGreaterThan(0)
+    expect(payload.sourceClientVersion!.length).toBeLessThanOrEqual(64)
     // wire 契约：models = Record<model, buckets>（数组形状会被服务端 400 BAD_MODELS 拒绝）
     expect(Array.isArray(payload.days[0]!.models)).toBe(false)
     expect(payload.days[0]!.models['deepseek/chat']).toEqual({
