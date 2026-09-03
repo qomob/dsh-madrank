@@ -1,5 +1,5 @@
 {
-  "name": "dsh-madrank",
+  "name": "@qomob/dsh-madrank",
   "version": "0.2.0",
   "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
   "license": "MIT",

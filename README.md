@@ -30,11 +30,13 @@ MADRank /api/usage/ingest（src/sync.ts）
 
 ## 安装（用户）
 
+> npm 包名：**`@qomob/dsh-madrank`**（@qomob 组织作用域；GitHub 仓库名仍是 `dsh-madrank`）。
+
 ### 方式 A — npm（推荐）
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add dsh-madrank
+pnpm add @qomob/dsh-madrank
 ```
 
 ### 方式 B — GitHub（源码 link，改动即时同步）
@@ -50,9 +52,9 @@ pnpm add 'link:/绝对路径/dsh-madrank'    # 必须 link: 协议；file: 会�
 ### 共同最后一步 — 注册条目 + 重启
 
 ```yaml
-# ~/.dsh/profiles/web/cordis.patch.yml 末尾追加
+# ~/.dsh/profiles/web/cordis.patch.yml 末尾追加（条目 = 包名，link 安装同样如此）
 - insert:
-    - name: 'dsh-madrank'
+    - name: '@qomob/dsh-madrank'
 ```
 
 然后**重启 DSH**（装依赖/改 patch 后 patch watcher 是 noop，只刷新页面无效）。
