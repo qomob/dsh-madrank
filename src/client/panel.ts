@@ -20,37 +20,17 @@ import { renderCardHtml, scopeEnabled } from './card-html.ts'
 import type { CardSnapshot, SettingsScopeLike } from './card-html.ts'
 import { composeGlobalView } from './card-data.ts'
 import { resolveLang, tr, type Lang } from './i18n.ts'
+import { dataTick, useTickSource, activeLocaleValue, resolveActiveLang, setActiveLocale } from './tick.ts'
+import { MadrankSettingsPanel } from './settings-panel.ts'
 
-// ── 微观共享状态：数据节拍 ──────────────────────────────────
+// ── 微观共享状态：数据节拍 + 宿主 locale（实现在 tick.ts；此处转出口保持既有导入面） ──
 
-/** apply() 装配时推进；两处 UI（settings 卡 / 侧栏面板）共享同一份快照。 */
-export const dataTick = (() => {
-  let snap: Partial<CardSnapshot> = {}
-  const listeners = new Set<() => void>()
-  return {
-    set(next: Partial<CardSnapshot>): void {
-      snap = next
-      for (const fn of [...listeners]) { try { fn() } catch { /* isolated */ } }
-    },
-    get(): Partial<CardSnapshot> { return snap },
-    subscribe(fn: () => void): () => void {
-      listeners.add(fn)
-      return () => { listeners.delete(fn) }
-    },
-  }
-})()
+export { dataTick, useTickSource, setActiveLocale } from './tick.ts'
 
-// ── 语言：跟随宿主 ctx.locale（只读 active + subscribe；变化经 dataTick 重渲染） ──
-
-let activeLocale: string | undefined
-
-/** 由 client/index.ts 的 apply() 装配：喂入宿主 locale 面的 active LocaleId。 */
-export function setActiveLocale(raw: string | undefined): void {
-  activeLocale = raw
-}
+// ── 语言：跟随宿主 ctx.locale（状态在 tick.ts；变化经 dataTick 重渲染） ──
 
 function cardLang(): Lang {
-  return resolveLang(activeLocale)
+  return resolveActiveLang()
 }
 
 /** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
@@ -62,17 +42,6 @@ function scopeValue(
   } catch {
     return undefined
   }
-}
-
-/** 订阅一个快照源推进重渲染；subscribe 形状不符（宿主变体/热切换瞬间）静默跳过——
- *  effect 里抛错会被 React 边界放大成整个入口卸载（「点击就没了」事故的同款根因）。 */
-function useTickSource(subscribe: ((fn: () => void) => () => void) | undefined): number {
-  const [v, setV] = useState(0)
-  useEffect(() => {
-    if (typeof subscribe !== 'function') return
-    return subscribe(() => setV(x => x + 1))
-  }, [subscribe])
-  return v
 }
 
 // ── 崩溃诊断边界：occupant 崩溃时原地显示错误文本而不是「点击就消失」──
@@ -159,16 +128,14 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const sv = scopeValue(scope)
     const { global, raceUrl } = composeGlobalView(fixture, sv)
     const snap: CardSnapshot = { ...base, ...fixture, global }
-    // 模态容器大：卡片用 lg 变体（解锁 320px 固定宽 + 双栏中段）
-    // 删除通道状态：deleteRequested > deletedEpoch = 进行中；deletedEpoch 更新 = 完成
-    const delReq = typeof sv?.deleteRequested === 'number' ? sv.deleteRequested : 0
-    const delDone = typeof sv?.deletedEpoch === 'number' ? sv.deletedEpoch : 0
+    // 模态容器大：卡片用 lg 变体（解锁 320px 固定宽 + 双栏中段）。
+    // v0.2：删除通道等配置动作收进 settings-panel.ts，卡片只负责「看」。
     html = renderCardHtml(
       snap,
       scopeEnabled(scope),
       anchored || lg
-        ? { size: 'lg', locale: activeLocale, range, selectedYmd: selYmd, raceUrl, deleteState: { pending: delReq > delDone && delReq > 0, done: delDone > delReq } }
-        : { locale: activeLocale, range, selectedYmd: selYmd, raceUrl, deleteState: { pending: delReq > delDone && delReq > 0, done: delDone > delReq } },
+        ? { size: 'lg', locale: activeLocaleValue(), range, selectedYmd: selYmd, raceUrl }
+        : { locale: activeLocaleValue(), range, selectedYmd: selYmd, raceUrl },
     )
   } catch (e) {
     console.warn('[madrank] card render fallback', e)
@@ -176,31 +143,14 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
       '<section class="mod"><div class="muted">Card unavailable this tick.</div></section></div>'
   }
 
-  // 绑定卡片内按钮（join/leave 写回 settings，UI 即时翻转）
+  // 绑定卡片内按钮（v0.2 只剩 Join：关闭态的「开启全球排名」转化入口；
+  // 退出/删除等配置动作在 Settings → MADRank 面板，见 settings-panel.ts）
   useEffect(() => {
     const rootEl = ref.current
     if (!rootEl) return
     const join = rootEl.querySelector('[data-madrank-join]')
-    const leave = rootEl.querySelector('[data-madrank-disable]')
     const onJoin = (): void => { void Promise.resolve(scope.set('enabled', true)).catch(() => {}); force(x => x + 1) }
-    const onLeave = (): void => { void Promise.resolve(scope.unset('enabled')).catch(() => {}); force(x => x + 1) }
     join?.addEventListener('click', onJoin)
-    leave?.addEventListener('click', onLeave)
-
-    // 删除通道（两步确认）：第一次点 = 进入确认态（改文案 + data-armed）；
-    // 第二次点 = 写 deleteRequested（settings 命令缝）→ 宿主 tick 执行远端删除。
-    const del = rootEl.querySelector('[data-madrank-delete]') as HTMLButtonElement | null
-    const onDelete = (): void => {
-      if (del == null) return
-      if (del.getAttribute('data-armed') !== '1') {
-        del.setAttribute('data-armed', '1')
-        del.textContent = tr(cardLang(), 'deleteConfirmBtn')
-        return
-      }
-      void Promise.resolve(scope.set('deleteRequested', Date.now())).catch(() => {})
-      force(x => x + 1)
-    }
-    del?.addEventListener('click', onDelete)
 
     // 范围切换 + 直方柱点击进入单日（同 join/leave 的 data-attr 绑定模式）
     const snap = dataTick.get()
@@ -230,8 +180,6 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     dayBars.forEach((b) => b.addEventListener('click', onDayBar))
     return () => {
       join?.removeEventListener('click', onJoin)
-      leave?.removeEventListener('click', onLeave)
-      del?.removeEventListener('click', onDelete)
       rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
       dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
     }
@@ -454,15 +402,16 @@ export interface SettingsTabProps {
 }
 
 /**
- * Settings 主导航的 MADRank 顶级分区页（同「桌面设置 / Agent 预设」形态）：
- * lg 变体内联全宽 —— 与脚部模态同一张卡，但随设置内容区自适应
- * （≥620px 容器自动横排同步区，见 card-html 的 @container 规则）。注册在 index.ts。
+ * Settings 主导航的 MADRank 顶级分区页（同「桌面设置 / Agent 预设」形态）。
+ * v0.2 交互规范：设置页 = CONFIGURATION（参与排名/同步/隐私/本地数据/插件），
+ * 不再复用 Quick View 用量卡 —— 二者分工：侧栏入口「看」，设置页「改」。
+ * 配置面板实现见 settings-panel.ts。
  */
 export function MadrankSettingsTab(props: SettingsTabProps): ReturnType<typeof createElement> {
   return createElement(
     CardErrorBoundary,
     null,
-    createElement(CardShell, { scope: props.scope, anchored: false, lg: true }),
+    createElement(MadrankSettingsPanel, { scope: props.scope }),
   )
 }
 

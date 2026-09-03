@@ -122,6 +122,10 @@ const CSS = [
 '  color:var(--dsw-alias-state-business-primary);font-weight:700;font-size:11px;',
 '  display:inline-flex;align-items:center;justify-content:center;flex:none}',
 '.madrank-card h3{margin:0;font-size:13px;font-weight:600;line-height:20px;min-width:0}',
+'/* 标题 + 副标题（定位语：卡片=看用量；设置=改配置） */',
+'.madrank-card .mk-headtext{min-width:0;display:flex;flex-direction:column;gap:1px}',
+'.madrank-card .mk-hsub{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:15px;',
+'  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 '.madrank-card .mk-headspacer{flex:1}',
 '/* 状态 pill：仿 configTag */',
 '.madrank-card .mk-tag{display:inline-flex;align-items:center;gap:6px;min-height:20px;',
@@ -248,6 +252,7 @@ const CSS = [
 const LG_CSS = [
 '.madrank-card-lg{width:100%;max-width:none;font-size:14px;line-height:1.5;gap:14px;container-type:inline-size}',
 '.madrank-card-lg h3{font-size:15px;line-height:22px}',
+'.madrank-card-lg .mk-hsub{font-size:12px;line-height:17px}',
 '.madrank-card-lg .mk-mark{width:24px;height:24px;font-size:12px;border-radius:7px}',
 '.madrank-card-lg .mk-tag{font-size:12px;min-height:24px}',
 '.madrank-card-lg .mk-hero{padding:18px 22px;border-radius:14px;gap:6px}',
@@ -474,10 +479,15 @@ function htmlHistorySection(
   ].join('')
 }
 
-/** Local 态（状态 A）：单句承诺 + 官方形制 Join CTA。 */
+/**
+ * Local 态（状态 A）：「你的全球排名」heading + 尚未参与（真实状态空态）
+ * + 单句隐私承诺 + 开启 CTA。配置类动作（退出/删除）在 Settings，不在此处。
+ */
 function htmlJoinCta(lang: Lang): string {
   return [
     '<div class="mk-sync">',
+    '<div class="mk-h"><b>' + tr(lang, 'yourRank') + '</b></div>',
+    '<p class="mk-fine" data-madrank-not-joined>' + tr(lang, 'notJoined') + '</p>',
     '<p class="mk-fine">' + tr(lang, 'joinFine') + '</p>',
     '<button type="button" class="mk-primary" data-madrank-join>' + tr(lang, 'joinCta') + '</button>',
     '</div>',
@@ -487,7 +497,8 @@ function htmlJoinCta(lang: Lang): string {
 /**
  * Joined 态（状态 B）：Your global rank 块替换大 CTA。
  * 有排名：#N + TOP x% + 7-day tokens；未出排名：诚实空态（等首个日级 sync）。
- * 大按钮退场 \u2192 View race 链接 + 轻量 Leave（panel.ts 仍按 data-madrank-disable 绑定）。
+ * v0.2 交互规范：退出/删除是配置动作，收进 Settings \u2192 MADRank；
+ * Quick View 只负责「看」（View race 链接保留），两入口不再同质。
  */
 function htmlJoined(
   hasRank: boolean,
@@ -495,7 +506,6 @@ function htmlJoined(
   lang: Lang,
   raceUrl: string,
   activeDays: number,
-  del: { pending: boolean; done: boolean },
 ): string {
   // GAP-D 信任修补：#1/1 时 TOP 100% 读作垫底 —— 唯一参与者改显 onlyParticipant
   const sole = hasRank && global.participants === 1
@@ -521,13 +531,7 @@ function htmlJoined(
     '<div class="mk-actions">',
     '<a class="mk-race" href="' + raceUrl + '" target="_blank" rel="noreferrer noopener">' +
       tr(lang, 'viewRace') + ' <span aria-hidden="true">\u2192</span></a>',
-    '<button type="button" class="mk-quiet" data-madrank-disable>' + tr(lang, 'leave') + '</button>',
     '</div>',
-    (del.pending || del.done
-      ? '<p class="mk-fine" data-madrank-delete-state="' + (del.pending ? 'pending' : 'done') + '">' +
-          tr(lang, del.pending ? 'deletePending' : 'deleteDone') + '</p>'
-      : ''),
-    '<button type="button" class="mk-quiet" data-madrank-delete>' + tr(lang, 'deleteBtn') + '</button>',
     '</div>',
   ].join('')
 }
@@ -537,9 +541,8 @@ function htmlSync(
   snap: CardSnapshot,
   lang: Lang,
   raceUrl: string,
-  del: { pending: boolean; done: boolean },
 ): string {
-  if (!enabled && !del.pending && !del.done) return htmlJoinCta(lang)
+  if (!enabled) return htmlJoinCta(lang)
   const g = snap.global
   // Active Days：本机近 7 个已完成 UTC 日中有用量数据的天数（本地真实计数，
   // 与站点 /rank 的 x/7 days 辅助信号同口径；纯展示，绝不参与排名公式）。
@@ -547,7 +550,7 @@ function htmlSync(
   return htmlJoined(
     g != null,
     g ?? { rank: 0, topPct: 0, race7d: 0, participants: 0 },
-    lang, raceUrl, activeDays, del,
+    lang, raceUrl, activeDays,
   )
 }
 
@@ -567,8 +570,6 @@ export function renderCardHtml(
     selectedYmd?: string
     /** View race 链接（self-host：调用方从 settings 的 endpoint 派生；缺省官方主站）。 */
     raceUrl?: string
-    /** 删除通道状态（panel.ts 从 settings mirror 的 deleteRequested/deletedEpoch 派生）。 */
-    deleteState?: { pending: boolean; done: boolean }
   } = { style: false },
 ): string {
   ensureCardStyles()
@@ -601,7 +602,10 @@ export function renderCardHtml(
     '<div class="madrank-card' + (lg ? ' madrank-card-lg' : '') + '">',
     '<div class="mk-head">',
     '<span class="mk-mark" aria-hidden="true">M</span>',
+    '<div class="mk-headtext">',
     '<h3>' + tr(lang, 'cardTitle') + '</h3>',
+    '<div class="mk-hsub">' + tr(lang, 'cardSubtitle') + '</div>',
+    '</div>',
     '<span class="mk-headspacer"></span>',
     '<span class="mk-tag" data-on="' + (enabled ? 'true' : 'false') + '" role="status">',
     '<span class="mk-dot"></span>' + tr(lang, enabled ? 'pillOn' : 'pillLocal'),
@@ -610,7 +614,7 @@ export function renderCardHtml(
     heroBlock,
     midBlock,
     htmlHistorySection(snap, lang, opts.range ?? '7d', opts.selectedYmd),
-    htmlSync(enabled, snap, lang, raceUrl, opts.deleteState ?? { pending: false, done: false }),
+    htmlSync(enabled, snap, lang, raceUrl),
     '<div class="mk-foot"><span>' + tr(lang, 'footerUpdated', { t: hhmm }) + '</span></div>',
     '</div>',
   ].join('')

@@ -24,17 +24,30 @@ const base: CardSnapshot = {
   generatedAt: Date.UTC(2026, 7, 27, 7, 2),
 }
 
-describe('renderCardHtml · 状态 A（Local only）', () => {
-  it('pill=Local only；Join CTA 在；footer=Updated HH:MM UTC（不再重复隐私话术）', () => {
+describe('renderCardHtml · 状态 A（Global ranking off）', () => {
+  it('pill=真实关闭态；「你的全球排名 + 尚未参与」空态；开启 CTA；footer=Updated（v0.2 交互规范）', () => {
     const html = renderCardHtml(base, false)
-    expect(html).toContain('Local only')
+    expect(html).toContain('Global ranking off')
+    expect(html).toContain('Your global rank')
+    expect(html).toContain('data-madrank-not-joined')
+    expect(html).toContain('Not participating')
     expect(html).toContain('data-madrank-join')
+    expect(html).toContain('Turn on global ranking')
     expect(html).toContain('Updated 07:02 UTC')
+    // Quick View 不含配置动作（退出/删除归 Settings → MADRank）
+    expect(html).not.toContain('data-madrank-disable')
+    expect(html).not.toContain('data-madrank-delete')
     expect(html).not.toContain('private by default')
     // 方案 2：off=空心点 / on=实心绿（开关语法；默认渲染不内联 CSS，单独取样式版断言）
     const styled = renderCardHtml(base, false, { style: true })
     expect(styled).toContain('.mk-tag[data-on=false] .mk-dot{background:transparent')
     expect(styled).toContain('.mk-tag[data-on=true] .mk-dot{background:var(--dsw-alias-state-success-primary)}')
+  })
+
+  it('标题=MADRank + 定位副标题（v0.2：卡片=看用量）', () => {
+    const html = renderCardHtml(base, false)
+    expect(html).toContain('<h3>MADRank</h3>')
+    expect(html).toContain('Your AI usage')
   })
 
   it('MOST USED 标题不带计数数字（排名语义由百分比+进度条表达）', () => {
@@ -78,12 +91,13 @@ describe('renderCardHtml · 状态 B（Joined）', () => {
     expect(html).toContain('8.21M')
   })
 
-  it('大 CTA 退场：无 Join 按钮；View race 链接 + 轻量 Leave（保留 data-madrank-disable 接线）', () => {
+  it('v0.2：无 Join/Leave/删除按钮 —— 配置动作全部收进 Settings；仅保留 View race 链接', () => {
     const html = renderCardHtml(joined, true)
     expect(html).not.toContain('data-madrank-join')
+    expect(html).not.toContain('data-madrank-disable')
+    expect(html).not.toContain('data-madrank-delete')
     expect(html).toContain('View race')
     expect(html).toContain('href="https://madrank.ai/race"')
-    expect(html).toContain('data-madrank-disable')
   })
 
   it('Utility 恒在 Gamification 之上：TODAY 段先于 Your global rank', () => {
@@ -96,7 +110,6 @@ describe('renderCardHtml · 状态 B（Joined）', () => {
     expect(html).toContain('Global ranking on')
     expect(html).toContain('daily sync')
     expect(html).not.toMatch(/#\d/)
-    expect(html).toContain('data-madrank-disable')
   })
 
   it('lg 模态变体：同一状态结构，无 .mk-cols 中段双栏残留', () => {
@@ -110,10 +123,13 @@ describe('renderCardHtml · 状态 B（Joined）', () => {
 describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
   const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
 
-  it('zh 状态 A：pill/CTA/footer/hero/分区标题/星期 全部中文', () => {
+  it('zh 状态 A：真实关闭态 pill + 尚未参与 + 开启全球排名；其余全中文', () => {
     const html = renderCardHtml(base, false, { locale: 'zh-CN' })
-    expect(html).toContain('仅本地')
-    expect(html).toContain('加入全球排名')
+    expect(html).toContain('全球排名已关闭')
+    expect(html).toContain('你的全球排名')
+    expect(html).toContain('尚未参与')
+    expect(html).toContain('开启全球排名')
+    expect(html).toContain('AI 用量与排名')
     expect(html).toContain('更新于 07:02 UTC')
     expect(html).toContain('今日 · 未缓存 Token')
     expect(html).toContain('常用模型')
@@ -123,12 +139,12 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
     // P0：列头=具体日期（UTC MM-DD）；hover 保留完整日期+星期
     expect(html).toContain('>08-27</div>')
     expect(html).toContain('title="2026-08-27 周四')
-    expect(html).not.toContain('Local only')
-    expect(html).not.toContain('Join global ranking')
+    expect(html).not.toContain('Global ranking off')
+    expect(html).not.toContain('Turn on global ranking')
     expect(html).not.toContain('Most used')
   })
 
-  it('zh 状态 B：Your global rank 块中文；退出/查看排名赛；无英文残留', () => {
+  it('zh 状态 B：Your global rank 块中文；无退出/删除按钮（配置归设置）；无英文残留', () => {
     const html = renderCardHtml(joined, true, { locale: 'zh' })
     expect(html).toContain('全球排名已开启')
     expect(html).toContain('你的全球排名')
@@ -136,7 +152,9 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
     expect(html).toContain('前 7.4%')
     expect(html).toContain('计入全球排名 · 7 日未缓存')
     expect(html).toContain('查看排名赛')
-    expect(html).toContain('>退出</button>')
+    // v0.2：退出/删除是配置动作，Quick View 不再提供
+    expect(html).not.toContain('>退出</button>')
+    expect(html).not.toContain('删除已同步数据')
     expect(html).toContain('href="https://madrank.ai/race"')
     expect(html).toContain('<b>你的全球排名</b>')
     expect(html).not.toContain('<b>Your global rank</b>')
@@ -161,8 +179,8 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
 
   it('未知语言回退 en（官方 FALLBACK_LOCALE 语义）', () => {
     const html = renderCardHtml(base, false, { locale: 'fr-FR' })
-    expect(html).toContain('Local only')
-    expect(html).not.toContain('仅本地')
+    expect(html).toContain('Global ranking off')
+    expect(html).not.toContain('全球排名已关闭')
   })
 })
 

@@ -9,7 +9,9 @@
  * 1. madrankUsage 投影单元 —— framework 驱动的纯 fold（唯一事件语义源）
  * 2. onChanged → 带去抖的本地持久化（按会话整体替换，见 store.ts）
  * 3. opt-in 日级批量同步循环（绝不实时上传，见 sync.ts）
- * 4. Settings section：enabled / endpoint / privacy 面板数据
+ * 4. Settings section：enabled / autoSync / endpoint + 删除与清除命令字段
+ *    （v0.2 交互规范：设置面 = CONFIGURATION，浏览器半侧渲染 settings-panel.ts；
+ *    Quick View 卡片只负责「看」，配置动作全部收进设置）
  */
 
 import { z } from 'zod'
@@ -46,8 +48,12 @@ const SettingsSchema = z.object({
   enabled: z.boolean().default(false),
   /** MADRank ingest 端点。 */
   endpoint: z.string().default('https://madrank.ai/api/usage/ingest'),
-  /** 删除通道命令字段（卡片两步确认后写入；宿主 tick 执行后回写 0）。 */
+  /** 自动同步每日聚合（默认 true；enabled=false 时同步轮根本不启动）。 */
+  autoSync: z.boolean().default(true),
+  /** 删除通道命令字段（设置面板两步确认后写入；宿主 tick 执行后回写 0）。 */
   deleteRequested: z.number().int().nonnegative().optional(),
+  /** 清除本地数据命令字段（只清本机统计；宿主 tick 执行后回写 0）。 */
+  clearLocalRequested: z.number().int().nonnegative().optional(),
 })
 
 export type Settings = z.infer<typeof SettingsSchema>
@@ -91,6 +97,26 @@ function writeDeletedEpoch(epoch: number): void {
   cachedDeletedEpoch = epoch
   mkdirSync(dataDir(), { recursive: true })
   writeFileSync(deletedEpochPath(), String(epoch))
+}
+
+/** 本地清除完成时间戳（settings mirror 注入 clearedEpoch 用；持久化跨进程）。 */
+let cachedClearedEpoch: number | null = null
+function clearedEpochPath(): string {
+  return join(dataDir(), 'cleared-epoch')
+}
+function readClearedEpoch(): number {
+  if (cachedClearedEpoch !== null) return cachedClearedEpoch
+  try {
+    cachedClearedEpoch = parseInt(readFileSync(clearedEpochPath(), 'utf8').trim(), 10) || 0
+  } catch {
+    cachedClearedEpoch = 0
+  }
+  return cachedClearedEpoch
+}
+function writeClearedEpoch(epoch: number): void {
+  cachedClearedEpoch = epoch
+  mkdirSync(dataDir(), { recursive: true })
+  writeFileSync(clearedEpochPath(), String(epoch))
 }
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -313,7 +339,32 @@ function start(
         .catch(() => undefined)
       return // 删除轮不与同步轮混跑
     }
-    if (!s.enabled || !s.endpoint || !storeHolder.store) return
+    // 3b) 清除本地数据通道（v0.2 设置面板「本地数据」块）：只清本机统计份额。
+    // 保留 uploadedDays —— 已上传的日子不因本地清除而重传；远端排名数据走
+    // 删除通道（3a），「清本地」与「删远端」语义严格分离。独立于 enabled。
+    // 完成后：记 clearedEpoch + 回写 clearLocalRequested=0（raw 层触碰 → mirror
+    // revision bump → 设置面板立即显示完成态）。
+    const clrReq = typeof s.clearLocalRequested === 'number' ? s.clearLocalRequested : 0
+    if (clrReq > 0 && storeHolder.store) {
+      try {
+        storeHolder.store.clearLocalStats()
+        writeFileSync(
+          join(dataDir(), 'card-snapshot.json'),
+          JSON.stringify(buildCardSnapshot(storeHolder.store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))),
+        )
+        writeClearedEpoch(Date.now())
+        void Promise.resolve(storeHolder.settingsScope?.update?.({ clearLocalRequested: 0 }))
+          .catch(() => {})
+        touchSettingsDocument()
+        log.info('local usage records cleared per user request')
+      } catch (e) {
+        log.warn('clear-local failed — flag kept for retry', e)
+      }
+      return
+    }
+    // 同步轮门控（v0.2）：参与排名（enabled）+ 自动同步（autoSync）双开关，
+    // 缺一不发 —— 设置面板的「自动同步」不是装饰，是真门。
+    if (!s.enabled || s.autoSync === false || !s.endpoint || !storeHolder.store) return
     void syncPendingDays(store, s, getAnonId, globalThis.fetch.bind(globalThis), (race) => {
       // ingest 响应携带按本机 anonId 重算的 7 日名次：持久化 + 内存镜像 +
       // 触碰设置文档 → Joined 卡片实时点亮（P0-1 / P0-2 的最后一环）。
@@ -381,7 +432,7 @@ function declareSettingsSection(ctx: CtxLike & Record<string, unknown>, log: { i
         const global = parsed.enabled && rec && sameOrigin(rec.endpoint, parsed.endpoint)
           ? cardGlobalFromRecord(rec)
           : null
-        return { ...parsed, global, deletedEpoch: readDeletedEpoch() }
+        return { ...parsed, global, deletedEpoch: readDeletedEpoch(), clearedEpoch: readClearedEpoch() }
       },
       {
         toJSON: () => ({
@@ -389,7 +440,8 @@ function declareSettingsSection(ctx: CtxLike & Record<string, unknown>, log: { i
           refs: {
             1: { type: 'boolean', meta: { default: false } },
             2: { type: 'string', meta: { default: 'https://madrank.ai/api/usage/ingest' } },
-            3: { type: 'object', meta: { default: {} }, dict: { enabled: 1, endpoint: 2 } },
+            3: { type: 'object', meta: { default: {} }, dict: { enabled: 1, endpoint: 2, autoSync: 4 } },
+            4: { type: 'boolean', meta: { default: true } },
           },
         }),
       },

@@ -11,6 +11,8 @@ export const MadrankUsageSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   /** MADRank ingest 端点（服务端做 Community Ranking 校验）。 */
   endpoint: z.string().default('https://madrank.ai/api/usage/ingest'),
+  /** 自动同步每日聚合（默认 true；enabled=false 时宿主根本不启动同步轮）。 */
+  autoSync: z.boolean().default(true),
 })
 
 export type MadrankUsageSettings = z.infer<typeof MadrankUsageSettingsSchema>

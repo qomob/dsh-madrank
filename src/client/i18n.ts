@@ -1,5 +1,5 @@
 /**
- * i18n.ts — 卡片文案词典（en/zh 双语，单一来源）。
+ * i18n.ts — 卡片与设置面板文案词典（en/zh 双语，单一来源）。
  *
  * 语言跟随宿主 ctx.locale（dsh-client-locale LocaleRuntime）：
  * - 只消费 getSnapshot().active + subscribe（不注册 namespace —— 单一 markup 源
@@ -7,6 +7,10 @@
  * - active LocaleId 为 'zh' | 'en'；未知/缺席一律回退 en（官方 FALLBACK_LOCALE 语义）；
  * - zh/en 键集必须一致（双语平衡，对齐官方 register 契约），新增文案两份同步补。
  * 键值为含内联标记（<b> 等）的完整片段；{name} 占位符经 tr() 插值。
+ *
+ * v0.2 交互规范（Quick View = 看数据 / Settings = 改配置）：
+ * - 卡片标题回归 "MADRank" + 副标题；关闭态 pill=「全球排名已关闭」（真实状态）；
+ * - Join CTA 更名「开启全球排名」；退出/删除等配置动作全部移入设置面板（s* 键）。
  */
 
 export type Lang = 'en' | 'zh'
@@ -17,9 +21,10 @@ export function resolveLang(raw?: string): Lang {
 }
 
 const en = {
-  pillLocal: 'Local only',
+  pillLocal: 'Global ranking off',
   pillOn: 'Global ranking on',
-  cardTitle: 'MADRank Usage',
+  cardTitle: 'MADRank',
+  cardSubtitle: 'Your AI usage',
   todayLabel: 'TODAY · UNCACHED TOKENS',
   todayEmpty: 'TODAY',
   noUsage: 'No usage recorded yet. Numbers appear after your next AI turn.',
@@ -39,11 +44,13 @@ const en = {
   segDay: 'Day',
   dayHeading: '{w} · {d}',
   joinFine: 'Optional: share <b>daily aggregates only</b> (token counts, model names). Never prompts, responses, or files. Off by default.',
-  joinCta: 'Join global ranking',
+  joinCta: 'Turn on global ranking',
+  notJoined: 'Not participating',
   yourRank: 'Your global rank',
   topChip: 'TOP {x}%',
   onlyParticipant: 'Only participant',
   race7dLabel: 'Ranked · 7-day uncached',
+  race7dShort: '7-day uncached {v}',
   activeDays7: '{n}/7 days',
   deleteBtn: 'Delete synced data',
   deleteConfirmBtn: 'Confirm delete',
@@ -54,15 +61,55 @@ const en = {
   viewRace: 'View race',
   leave: 'Leave',
   footerUpdated: 'Updated {t} UTC',
+  // ── 设置面板（Settings → MADRank = Configuration）──
+  sRanking: 'Global ranking',
+  sRankingToggle: 'Participate in MADRank global ranking',
+  sRankingDesc: 'When on, DSH anonymously syncs daily aggregated token usage to MADRank to generate your global ranking. Local statistics are unaffected, and you can turn it off anytime.',
+  sSync: 'Data sync',
+  sSyncToggle: 'Auto-sync daily usage',
+  sSyncDesc: 'Once a day finishes (UTC), its aggregate data is synced automatically.',
+  sSyncOffHint: 'Available when global ranking is on',
+  sLastSync: 'Last sync',
+  sNeverSynced: 'Not synced yet',
+  sPrivacy: 'Privacy',
+  sPrivacyIntro: 'MADRank only receives the aggregates required for ranking. Everything else never leaves this device.',
+  sSyncedHead: 'Synced',
+  sNeverHead: 'Never synced',
+  sItemTokens: 'Token counts',
+  sItemDates: 'Usage dates',
+  sItemModels: 'Model names',
+  sItemChats: 'Chats',
+  sItemPrompts: 'Prompts',
+  sItemResponses: 'Responses',
+  sItemFiles: 'Files',
+  sItemKeys: 'API keys',
+  sItemTools: 'Tool arguments',
+  sPrivacyMore: 'Privacy policy',
+  sDeleteNote: 'Removes ranking data already submitted to MADRank. Local statistics on this device are not affected.',
+  sData: 'Local data',
+  sDataRecords: 'Local records',
+  sDaysCount: '{n} days',
+  sDataNote: 'Usage statistics are stored only on this device and power the trends and the daily sync payload.',
+  sClearBtn: 'Clear local data',
+  sClearConfirmBtn: 'Confirm clear',
+  sClearPending: 'Clearing…',
+  sClearDone: 'Local records cleared.',
+  sClearNote: 'Clears the local statistics on this device only. Ranking data already submitted to MADRank is not removed; active sessions accumulate again.',
+  sPlugin: 'Plugin',
+  sPluginName: 'MADRank DSH Plugin',
+  sStatus: 'Status',
+  sPluginEnabled: 'Enabled',
+  sInstallGuide: 'Install guide',
 } as const
 
 export type DictKey = keyof typeof en
 
 /** zh 词典：键集与 en 完全一致（双语平衡）。 */
 const zh: Record<DictKey, string> = {
-  pillLocal: '仅本地',
+  pillLocal: '全球排名已关闭',
   pillOn: '全球排名已开启',
-  cardTitle: 'MADRank 用量',
+  cardTitle: 'MADRank',
+  cardSubtitle: 'AI 用量与排名',
   todayLabel: '今日 · 未缓存 Token',
   todayEmpty: '今日',
   noUsage: '还没有用量记录，下一次 AI 对话后就会出现数字。',
@@ -82,11 +129,13 @@ const zh: Record<DictKey, string> = {
   segDay: '单日',
   dayHeading: '{w} · {d}',
   joinFine: '可选：仅共享<b>每日聚合数字</b>（Token 数与模型名）。绝不上传提示词、回复或文件。默认关闭。',
-  joinCta: '加入全球排名',
+  joinCta: '开启全球排名',
+  notJoined: '尚未参与',
   yourRank: '你的全球排名',
   topChip: '前 {x}%',
   onlyParticipant: '当前唯一参与者',
   race7dLabel: '计入全球排名 · 7 日未缓存',
+  race7dShort: '7 日未缓存 {v}',
   activeDays7: '{n}/7 天',
   deleteBtn: '删除已同步数据',
   deleteConfirmBtn: '确认删除',
@@ -97,6 +146,45 @@ const zh: Record<DictKey, string> = {
   viewRace: '查看排名赛',
   leave: '退出',
   footerUpdated: '更新于 {t} UTC',
+  // ── 设置面板 ──
+  sRanking: '全球排名',
+  sRankingToggle: '参与 MADRank 全球排名',
+  sRankingDesc: '开启后，DSH 会将每日聚合 Token 用量匿名同步至 MADRank，用于生成全球排名。本地统计不受影响，可随时关闭。',
+  sSync: '数据同步',
+  sSyncToggle: '自动同步每日用量',
+  sSyncDesc: '每个 UTC 日结束后，自动同步当日聚合数据。',
+  sSyncOffHint: '参与全球排名后可用',
+  sLastSync: '最近同步',
+  sNeverSynced: '尚未同步',
+  sPrivacy: '隐私',
+  sPrivacyIntro: 'MADRank 仅同步排名所需的聚合数据，其余数据永远不会离开这台设备。',
+  sSyncedHead: '仅同步',
+  sNeverHead: '绝不同步',
+  sItemTokens: 'Token 用量',
+  sItemDates: '使用日期',
+  sItemModels: '模型标识',
+  sItemChats: '对话内容',
+  sItemPrompts: '提示词（Prompt）',
+  sItemResponses: '回复（Response）',
+  sItemFiles: '文件',
+  sItemKeys: 'API Key',
+  sItemTools: '工具参数',
+  sPrivacyMore: '查看隐私说明',
+  sDeleteNote: '只删除已提交到 MADRank 的历史排名数据，不影响此设备上的本地统计。',
+  sData: '本地数据',
+  sDataRecords: '本地记录',
+  sDaysCount: '{n} 天',
+  sDataNote: '用量统计只保存在这台设备上，用于展示趋势和生成每日同步数据。',
+  sClearBtn: '清除本地数据',
+  sClearConfirmBtn: '确认清除',
+  sClearPending: '清除中…',
+  sClearDone: '本地统计记录已清除。',
+  sClearNote: '只清空此设备上的本地统计记录，不会删除已提交到 MADRank 的历史排名数据；进行中的会话会重新累计。',
+  sPlugin: '插件',
+  sPluginName: 'MADRank DSH Plugin',
+  sStatus: '状态',
+  sPluginEnabled: '已启用',
+  sInstallGuide: '安装说明',
 }
 
 const DICTS: Record<Lang, Record<DictKey, string>> = { en, zh }

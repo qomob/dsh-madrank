@@ -2,7 +2,7 @@
 
 > **MADRank Usage** — Track your AI usage. See how you rank.
 >
-> **v0.1 — Local Usage**（当前阶段：P1）
+> **v0.2 — Quick View / Settings 分工 + 参与排名开关**（npm · [GitHub](https://github.com/qomob/dsh-madrank)）
 
 
 DeepSeek Harness 插件：把本机 AI 用量变成私人仪表盘 + 可选的匿名全球排名
@@ -28,20 +28,40 @@ UsageStore（按会话整体替换 → 防漂移；src/store.ts）
 MADRank /api/usage/ingest（src/sync.ts）
 ```
 
-## 接入 DSH（宿主侧）
+## 安装（用户）
 
-方式 A — 本地路径试用：
+### 方式 A — npm（推荐）
 
-```yaml
-# cordis.yml 增加一行
-- name: '/absolute/path/to/dsh-madrank/src/index.ts'
+```bash
+cd ~/.dsh/profiles/web
+pnpm add dsh-madrank
 ```
 
-方式 B — 发布为 npm 包后：
+### 方式 B — GitHub（源码 link，改动即时同步）
+
+```bash
+git clone https://github.com/qomob/dsh-madrank.git
+cd dsh-madrank && npm install && npm run build:client   # 构建浏览器半侧 dist/client.js
+
+cd ~/.dsh/profiles/web
+pnpm add 'link:/绝对路径/dsh-madrank'    # 必须 link: 协议；file: 会实体复制、更新不同步
+```
+
+### 共同最后一步 — 注册条目 + 重启
 
 ```yaml
-- name: 'dsh-madrank'
+# ~/.dsh/profiles/web/cordis.patch.yml 末尾追加
+- insert:
+    - name: 'dsh-madrank'
 ```
+
+然后**重启 DSH**（装依赖/改 patch 后 patch watcher 是 noop，只刷新页面无效）。
+
+⚠️ **不要用本地路径条目**（`- name: '/path/to/src/index.ts'`）：路径式只装得上宿主半侧，
+分发器把条目名当包名 `require.resolve`，浏览器 bundle 进不了 boot graph —— 侧栏和设置页都是空的。
+
+验证：DSH 终端出现 `settings ns registered: madrank-usage`；侧栏出现 MADRank 入口。
+加入全球排名：设置 → MADRank → 打开「参与全球排名」。
 
 依赖缝：`sessionProjections`（硬）、settings（软，缺席时以默认值离线运行）。
 数据目录：`$MADRANK_USAGE_DIR` 或 `~/.madrank/usage/`。

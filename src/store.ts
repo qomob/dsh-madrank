@@ -111,6 +111,17 @@ export class UsageStore {
     this.data = emptyStore()
     this.flush()
   }
+
+  /**
+   * 只清本机统计份额（v0.2 设置面板「清除本地数据」）。
+   * 与 wipe 的区别：保留 uploadedDays —— 已上传的日子不因本地清除而重传
+   * （「清本地」≠「撤回远端」；远端删除走 deleteRequested 命令通道）。
+   * 活跃会话的下一次 onChanged 会重新入账（语义见设置面板提示文案）。
+   */
+  clearLocalStats(): void {
+    this.data.sessions = {}
+    this.flush()
+  }
 }
 
 function structuredCloneish<T>(v: T): T {

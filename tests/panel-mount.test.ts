@@ -134,8 +134,9 @@ describe('点击路径真实挂载（happy-dom）', () => {
     mount(createElement(MadrankFooterCell, { scope }))
     click(host.querySelector('button'))
     expect(document.querySelector('.madrank-panel-modal')).not.toBeNull()
-    // 离线默认：Local only + Join CTA
-    expect(document.body.textContent).toContain('Local only')
+    // 离线默认：真实关闭态 pill + 开启 CTA（v0.2 文案）
+    expect(document.body.textContent).toContain('Global ranking off')
+    expect(document.body.textContent).toContain('Turn on global ranking')
   })
 
   it('渲染崩溃被自家边界接住 → 显示 [MADRank debug] 错误文本而不是入口消失', () => {

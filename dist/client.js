@@ -287,10 +287,16 @@ window.__ModuleLoader__.load({
 		function decodeSettingsSection(section) {
 			if (typeof section !== "object" || section === null || Array.isArray(section)) return void 0;
 			const s = section;
+			const numOr0 = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
 			return {
 				enabled: s["enabled"] === true,
 				endpoint: typeof s["endpoint"] === "string" ? s["endpoint"] : void 0,
-				global: decodeWireGlobal(s["global"])
+				global: decodeWireGlobal(s["global"]),
+				autoSync: s["autoSync"] !== false,
+				deleteRequested: numOr0(s["deleteRequested"]),
+				deletedEpoch: numOr0(s["deletedEpoch"]),
+				clearLocalRequested: numOr0(s["clearLocalRequested"]),
+				clearedEpoch: numOr0(s["clearedEpoch"])
 			};
 		}
 		/**
@@ -332,9 +338,10 @@ window.__ModuleLoader__.load({
 		}
 		const DICTS = {
 			en: {
-				pillLocal: "Local only",
+				pillLocal: "Global ranking off",
 				pillOn: "Global ranking on",
-				cardTitle: "MADRank Usage",
+				cardTitle: "MADRank",
+				cardSubtitle: "Your AI usage",
 				todayLabel: "TODAY · UNCACHED TOKENS",
 				todayEmpty: "TODAY",
 				noUsage: "No usage recorded yet. Numbers appear after your next AI turn.",
@@ -354,11 +361,13 @@ window.__ModuleLoader__.load({
 				segDay: "Day",
 				dayHeading: "{w} · {d}",
 				joinFine: "Optional: share <b>daily aggregates only</b> (token counts, model names). Never prompts, responses, or files. Off by default.",
-				joinCta: "Join global ranking",
+				joinCta: "Turn on global ranking",
+				notJoined: "Not participating",
 				yourRank: "Your global rank",
 				topChip: "TOP {x}%",
 				onlyParticipant: "Only participant",
 				race7dLabel: "Ranked · 7-day uncached",
+				race7dShort: "7-day uncached {v}",
 				activeDays7: "{n}/7 days",
 				deleteBtn: "Delete synced data",
 				deleteConfirmBtn: "Confirm delete",
@@ -368,12 +377,51 @@ window.__ModuleLoader__.load({
 				joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
 				viewRace: "View race",
 				leave: "Leave",
-				footerUpdated: "Updated {t} UTC"
+				footerUpdated: "Updated {t} UTC",
+				sRanking: "Global ranking",
+				sRankingToggle: "Participate in MADRank global ranking",
+				sRankingDesc: "When on, DSH anonymously syncs daily aggregated token usage to MADRank to generate your global ranking. Local statistics are unaffected, and you can turn it off anytime.",
+				sSync: "Data sync",
+				sSyncToggle: "Auto-sync daily usage",
+				sSyncDesc: "Once a day finishes (UTC), its aggregate data is synced automatically.",
+				sSyncOffHint: "Available when global ranking is on",
+				sLastSync: "Last sync",
+				sNeverSynced: "Not synced yet",
+				sPrivacy: "Privacy",
+				sPrivacyIntro: "MADRank only receives the aggregates required for ranking. Everything else never leaves this device.",
+				sSyncedHead: "Synced",
+				sNeverHead: "Never synced",
+				sItemTokens: "Token counts",
+				sItemDates: "Usage dates",
+				sItemModels: "Model names",
+				sItemChats: "Chats",
+				sItemPrompts: "Prompts",
+				sItemResponses: "Responses",
+				sItemFiles: "Files",
+				sItemKeys: "API keys",
+				sItemTools: "Tool arguments",
+				sPrivacyMore: "Privacy policy",
+				sDeleteNote: "Removes ranking data already submitted to MADRank. Local statistics on this device are not affected.",
+				sData: "Local data",
+				sDataRecords: "Local records",
+				sDaysCount: "{n} days",
+				sDataNote: "Usage statistics are stored only on this device and power the trends and the daily sync payload.",
+				sClearBtn: "Clear local data",
+				sClearConfirmBtn: "Confirm clear",
+				sClearPending: "Clearing…",
+				sClearDone: "Local records cleared.",
+				sClearNote: "Clears the local statistics on this device only. Ranking data already submitted to MADRank is not removed; active sessions accumulate again.",
+				sPlugin: "Plugin",
+				sPluginName: "MADRank DSH Plugin",
+				sStatus: "Status",
+				sPluginEnabled: "Enabled",
+				sInstallGuide: "Install guide"
 			},
 			zh: {
-				pillLocal: "仅本地",
+				pillLocal: "全球排名已关闭",
 				pillOn: "全球排名已开启",
-				cardTitle: "MADRank 用量",
+				cardTitle: "MADRank",
+				cardSubtitle: "AI 用量与排名",
 				todayLabel: "今日 · 未缓存 Token",
 				todayEmpty: "今日",
 				noUsage: "还没有用量记录，下一次 AI 对话后就会出现数字。",
@@ -393,11 +441,13 @@ window.__ModuleLoader__.load({
 				segDay: "单日",
 				dayHeading: "{w} · {d}",
 				joinFine: "可选：仅共享<b>每日聚合数字</b>（Token 数与模型名）。绝不上传提示词、回复或文件。默认关闭。",
-				joinCta: "加入全球排名",
+				joinCta: "开启全球排名",
+				notJoined: "尚未参与",
 				yourRank: "你的全球排名",
 				topChip: "前 {x}%",
 				onlyParticipant: "当前唯一参与者",
 				race7dLabel: "计入全球排名 · 7 日未缓存",
+				race7dShort: "7 日未缓存 {v}",
 				activeDays7: "{n}/7 天",
 				deleteBtn: "删除已同步数据",
 				deleteConfirmBtn: "确认删除",
@@ -407,7 +457,45 @@ window.__ModuleLoader__.load({
 				joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
 				viewRace: "查看排名赛",
 				leave: "退出",
-				footerUpdated: "更新于 {t} UTC"
+				footerUpdated: "更新于 {t} UTC",
+				sRanking: "全球排名",
+				sRankingToggle: "参与 MADRank 全球排名",
+				sRankingDesc: "开启后，DSH 会将每日聚合 Token 用量匿名同步至 MADRank，用于生成全球排名。本地统计不受影响，可随时关闭。",
+				sSync: "数据同步",
+				sSyncToggle: "自动同步每日用量",
+				sSyncDesc: "每个 UTC 日结束后，自动同步当日聚合数据。",
+				sSyncOffHint: "参与全球排名后可用",
+				sLastSync: "最近同步",
+				sNeverSynced: "尚未同步",
+				sPrivacy: "隐私",
+				sPrivacyIntro: "MADRank 仅同步排名所需的聚合数据，其余数据永远不会离开这台设备。",
+				sSyncedHead: "仅同步",
+				sNeverHead: "绝不同步",
+				sItemTokens: "Token 用量",
+				sItemDates: "使用日期",
+				sItemModels: "模型标识",
+				sItemChats: "对话内容",
+				sItemPrompts: "提示词（Prompt）",
+				sItemResponses: "回复（Response）",
+				sItemFiles: "文件",
+				sItemKeys: "API Key",
+				sItemTools: "工具参数",
+				sPrivacyMore: "查看隐私说明",
+				sDeleteNote: "只删除已提交到 MADRank 的历史排名数据，不影响此设备上的本地统计。",
+				sData: "本地数据",
+				sDataRecords: "本地记录",
+				sDaysCount: "{n} 天",
+				sDataNote: "用量统计只保存在这台设备上，用于展示趋势和生成每日同步数据。",
+				sClearBtn: "清除本地数据",
+				sClearConfirmBtn: "确认清除",
+				sClearPending: "清除中…",
+				sClearDone: "本地统计记录已清除。",
+				sClearNote: "只清空此设备上的本地统计记录，不会删除已提交到 MADRank 的历史排名数据；进行中的会话会重新累计。",
+				sPlugin: "插件",
+				sPluginName: "MADRank DSH Plugin",
+				sStatus: "状态",
+				sPluginEnabled: "已启用",
+				sInstallGuide: "安装说明"
 			}
 		};
 		/** 取词 + {name} 插值；缺键回退 en，再缺回显 key（fail loud，对齐官方 lookup 链）。 */
@@ -490,6 +578,10 @@ window.__ModuleLoader__.load({
 			"  color:var(--dsw-alias-state-business-primary);font-weight:700;font-size:11px;",
 			"  display:inline-flex;align-items:center;justify-content:center;flex:none}",
 			".madrank-card h3{margin:0;font-size:13px;font-weight:600;line-height:20px;min-width:0}",
+			"/* 标题 + 副标题（定位语：卡片=看用量；设置=改配置） */",
+			".madrank-card .mk-headtext{min-width:0;display:flex;flex-direction:column;gap:1px}",
+			".madrank-card .mk-hsub{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:15px;",
+			"  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
 			".madrank-card .mk-headspacer{flex:1}",
 			"/* 状态 pill：仿 configTag */",
 			".madrank-card .mk-tag{display:inline-flex;align-items:center;gap:6px;min-height:20px;",
@@ -615,6 +707,7 @@ window.__ModuleLoader__.load({
 		const LG_CSS = [
 			".madrank-card-lg{width:100%;max-width:none;font-size:14px;line-height:1.5;gap:14px;container-type:inline-size}",
 			".madrank-card-lg h3{font-size:15px;line-height:22px}",
+			".madrank-card-lg .mk-hsub{font-size:12px;line-height:17px}",
 			".madrank-card-lg .mk-mark{width:24px;height:24px;font-size:12px;border-radius:7px}",
 			".madrank-card-lg .mk-tag{font-size:12px;min-height:24px}",
 			".madrank-card-lg .mk-hero{padding:18px 22px;border-radius:14px;gap:6px}",
@@ -799,10 +892,15 @@ window.__ModuleLoader__.load({
 				"</div>"
 			].join("");
 		}
-		/** Local 态（状态 A）：单句承诺 + 官方形制 Join CTA。 */
+		/**
+		* Local 态（状态 A）：「你的全球排名」heading + 尚未参与（真实状态空态）
+		* + 单句隐私承诺 + 开启 CTA。配置类动作（退出/删除）在 Settings，不在此处。
+		*/
 		function htmlJoinCta(lang) {
 			return [
 				"<div class=\"mk-sync\">",
+				"<div class=\"mk-h\"><b>" + tr(lang, "yourRank") + "</b></div>",
+				"<p class=\"mk-fine\" data-madrank-not-joined>" + tr(lang, "notJoined") + "</p>",
 				"<p class=\"mk-fine\">" + tr(lang, "joinFine") + "</p>",
 				"<button type=\"button\" class=\"mk-primary\" data-madrank-join>" + tr(lang, "joinCta") + "</button>",
 				"</div>"
@@ -811,9 +909,10 @@ window.__ModuleLoader__.load({
 		/**
 		* Joined 态（状态 B）：Your global rank 块替换大 CTA。
 		* 有排名：#N + TOP x% + 7-day tokens；未出排名：诚实空态（等首个日级 sync）。
-		* 大按钮退场 \u2192 View race 链接 + 轻量 Leave（panel.ts 仍按 data-madrank-disable 绑定）。
+		* v0.2 交互规范：退出/删除是配置动作，收进 Settings \u2192 MADRank；
+		* Quick View 只负责「看」（View race 链接保留），两入口不再同质。
 		*/
-		function htmlJoined(hasRank, global, lang, raceUrl, activeDays, del) {
+		function htmlJoined(hasRank, global, lang, raceUrl, activeDays) {
 			const sole = hasRank && global.participants === 1;
 			const rankBlock = hasRank ? [
 				"<div class=\"mk-rankrow\">",
@@ -830,15 +929,12 @@ window.__ModuleLoader__.load({
 				"<p class=\"mk-fine\">" + tr(lang, "shareFine", { mask: ANON_MASK }) + "</p>",
 				"<div class=\"mk-actions\">",
 				"<a class=\"mk-race\" href=\"" + raceUrl + "\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
-				"<button type=\"button\" class=\"mk-quiet\" data-madrank-disable>" + tr(lang, "leave") + "</button>",
 				"</div>",
-				del.pending || del.done ? "<p class=\"mk-fine\" data-madrank-delete-state=\"" + (del.pending ? "pending" : "done") + "\">" + tr(lang, del.pending ? "deletePending" : "deleteDone") + "</p>" : "",
-				"<button type=\"button\" class=\"mk-quiet\" data-madrank-delete>" + tr(lang, "deleteBtn") + "</button>",
 				"</div>"
 			].join("");
 		}
-		function htmlSync(enabled, snap, lang, raceUrl, del) {
-			if (!enabled && !del.pending && !del.done) return htmlJoinCta(lang);
+		function htmlSync(enabled, snap, lang, raceUrl) {
+			if (!enabled) return htmlJoinCta(lang);
 			const g = snap.global;
 			const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length;
 			return htmlJoined(g != null, g ?? {
@@ -846,7 +942,7 @@ window.__ModuleLoader__.load({
 				topPct: 0,
 				race7d: 0,
 				participants: 0
-			}, lang, raceUrl, activeDays, del);
+			}, lang, raceUrl, activeDays);
 		}
 		/**
 		* 纯渲染：卡片 HTML（React 壳与预览工具共用）。
@@ -878,7 +974,10 @@ window.__ModuleLoader__.load({
 				"<div class=\"madrank-card" + (lg ? " madrank-card-lg" : "") + "\">",
 				"<div class=\"mk-head\">",
 				"<span class=\"mk-mark\" aria-hidden=\"true\">M</span>",
+				"<div class=\"mk-headtext\">",
 				"<h3>" + tr(lang, "cardTitle") + "</h3>",
+				"<div class=\"mk-hsub\">" + tr(lang, "cardSubtitle") + "</div>",
+				"</div>",
 				"<span class=\"mk-headspacer\"></span>",
 				"<span class=\"mk-tag\" data-on=\"" + (enabled ? "true" : "false") + "\" role=\"status\">",
 				"<span class=\"mk-dot\"></span>" + tr(lang, enabled ? "pillOn" : "pillLocal"),
@@ -887,29 +986,21 @@ window.__ModuleLoader__.load({
 				heroBlock,
 				midBlock,
 				htmlHistorySection(snap, lang, opts.range ?? "7d", opts.selectedYmd),
-				htmlSync(enabled, snap, lang, raceUrl, opts.deleteState ?? {
-					pending: false,
-					done: false
-				}),
+				htmlSync(enabled, snap, lang, raceUrl),
 				"<div class=\"mk-foot\"><span>" + tr(lang, "footerUpdated", { t: hhmm }) + "</span></div>",
 				"</div>"
 			].join("");
 		}
 		//#endregion
-		//#region src/client/panel.ts
+		//#region src/client/tick.ts
 		/**
-		* panel.ts — 侧栏脚部入口 + 卡片面板（React，官方 sidebar.footer.action 槽）。
+		* tick.ts — 微观共享状态（数据节拍 + 订阅 hook）。
 		*
-		* 契约要点（slot-catalog 实测）：
-		* - 'sidebar.footer.action' 是 list 槽、replaceRisk: none；fresh id 并列追加。
-		* - 组件形参是 React 渲染管线的一部分（官方 CordisPanel 同款），owner 传入
-		*   `wide: boolean`（false = 56px 收窄栏 → 图标态）。
-		* - 页脚按钮点击后以 **页面居中的全屏模态** 呈现（react-dom Portal 挂 document.body，
-		*   彻底逃离侧栏的 overflow 裁剪与 stacking context；点遮罩 / Esc 关闭）。
-		*
-		* 样式：主题 CSS 变量（非字面色），卡片标记与 settings 卡共用 card-html。
+		* 从 panel.ts 抽出为独立模块：设置面板（settings-panel.ts）与卡片壳（panel.ts）
+		* 共享同一份快照，但二者互相渲染 —— 放在同一文件会成环。独立模块后依赖恒为
+		* settings-panel → tick ← panel，无循环（bundle CJS 工厂对环最不友好）。
 		*/
-		/** apply() 装配时推进；两处 UI（settings 卡 / 侧栏面板）共享同一份快照。 */
+		/** apply() 装配时推进；两处 UI（设置面板 / 侧栏卡片）共享同一份快照。 */
 		const dataTick = (() => {
 			let snap = {};
 			const listeners = /* @__PURE__ */ new Set();
@@ -931,22 +1022,6 @@ window.__ModuleLoader__.load({
 				}
 			};
 		})();
-		let activeLocale;
-		/** 由 client/index.ts 的 apply() 装配：喂入宿主 locale 面的 active LocaleId。 */
-		function setActiveLocale(raw) {
-			activeLocale = raw;
-		}
-		function cardLang() {
-			return resolveLang(activeLocale);
-		}
-		/** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
-		function scopeValue(scope) {
-			try {
-				return scope?.getSnapshot?.()?.value;
-			} catch {
-				return;
-			}
-		}
 		/** 订阅一个快照源推进重渲染；subscribe 形状不符（宿主变体/热切换瞬间）静默跳过——
 		*  effect 里抛错会被 React 边界放大成整个入口卸载（「点击就没了」事故的同款根因）。 */
 		function useTickSource(subscribe) {
@@ -956,6 +1031,360 @@ window.__ModuleLoader__.load({
 				return subscribe(() => setV((x) => x + 1));
 			}, [subscribe]);
 			return v;
+		}
+		let activeLocale;
+		/** 由 client/index.ts 的 apply() 装配：喂入宿主 locale 面的 active LocaleId。 */
+		function setActiveLocale(raw) {
+			activeLocale = raw;
+		}
+		function activeLocaleValue() {
+			return activeLocale;
+		}
+		/** 当前生效语言（未知/缺席回退 en，官方 FALLBACK_LOCALE 语义）。 */
+		function resolveActiveLang() {
+			return resolveLang(activeLocale);
+		}
+		//#endregion
+		//#region src/client/settings-panel.ts
+		/**
+		* settings-panel.ts — 设置 → MADRank 配置面板（v0.2 交互规范落点）。
+		*
+		* 定位（与 Quick View 卡片的分工）：
+		*   侧栏 MADRank   = QUICK VIEW    「我现在用了多少？我排第几？」
+		*   设置 → MADRank = CONFIGURATION 「我要不要参与？数据怎么同步？隐私？本地数据？」
+		*
+		* 五个区块（克制，不加多余开关）：
+		*   RANKING  参与 MADRank 全球排名（核心开关；本地统计不受影响，默认关闭）
+		*   SYNC     自动同步每日用量（排名关闭时不可用 —— 不出两个互相矛盾的开关）
+		*   PRIVACY  固定数据定义（只同步聚合；不做「可选上传 prompt」这类开关）
+		*   DATA     本地数据概览 + 清除本地数据（只清本机，不动已提交的排名）
+		*   PLUGIN   插件状态 / 版本 / 最近同步 / 安装说明
+		*
+		* 数据缝：settings mirror（decodeSettingsSection 窄化后的值）+ dataTick 快照。
+		* 动作缝：scope.set / unset 写回宿主设置；deleteRequested / clearLocalRequested
+		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
+		*/
+		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
+		const PLUGIN_VERSION = "0.2.0";
+		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
+		const SITE_FALLBACK = "https://madrank.ai";
+		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
+		function siteUrl(endpoint, path) {
+			try {
+				if (!endpoint) return SITE_FALLBACK + path;
+				return new URL(endpoint).origin + path;
+			} catch {
+				return SITE_FALLBACK + path;
+			}
+		}
+		/** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
+		function scopeValue$1(scope) {
+			try {
+				const v = scope?.getSnapshot?.()?.value;
+				if (typeof v !== "object" || v === null) return void 0;
+				return {
+					enabled: v.enabled === true,
+					endpoint: typeof v.endpoint === "string" ? v.endpoint : void 0,
+					global: v.global ?? null,
+					autoSync: v.autoSync !== false,
+					deleteRequested: typeof v.deleteRequested === "number" ? v.deleteRequested : 0,
+					deletedEpoch: typeof v.deletedEpoch === "number" ? v.deletedEpoch : 0,
+					clearLocalRequested: typeof v.clearLocalRequested === "number" ? v.clearLocalRequested : 0,
+					clearedEpoch: typeof v.clearedEpoch === "number" ? v.clearedEpoch : 0
+				};
+			} catch {
+				return;
+			}
+		}
+		const SETTINGS_CSS = [
+			".mkp{display:flex;flex-direction:column;gap:18px;max-width:640px;color:var(--dsw-alias-label-primary);",
+			"  font-size:13px;line-height:1.5}",
+			"/* 头部 */",
+			".mkp-head{display:flex;align-items:center;gap:10px}",
+			".mkp-mark{width:28px;height:28px;border-radius:8px;flex:none;",
+			"  background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);",
+			"  color:var(--dsw-alias-state-business-primary);font-weight:700;font-size:13px;",
+			"  display:inline-flex;align-items:center;justify-content:center}",
+			".mkp-headtext{min-width:0;display:flex;flex-direction:column;gap:1px}",
+			".mkp-headtext h3{margin:0;font-size:15px;font-weight:600;line-height:20px}",
+			".mkp-hsub{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:16px}",
+			".mkp-headspring{flex:1}",
+			"/* 状态 pill（真实状态语法：on=实心绿 / off=空心） */",
+			".mkp-tag{display:inline-flex;align-items:center;gap:6px;min-height:22px;padding:2px 9px;border-radius:6px;",
+			"  background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;",
+			"  white-space:nowrap}",
+			".mkp-dot{width:7px;height:7px;border-radius:999px;flex:none;background:var(--dsw-alias-label-tertiary)}",
+			".mkp-tag[data-on=true]{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);",
+			"  color:var(--dsw-alias-state-success-primary)}",
+			".mkp-tag[data-on=true] .mkp-dot{background:var(--dsw-alias-state-success-primary)}",
+			".mkp-tag[data-on=false] .mkp-dot{background:transparent;box-sizing:border-box;width:8px;height:8px;",
+			"  border:1.5px solid var(--dsw-alias-label-tertiary)}",
+			"/* 区块 */",
+			".mkp-sec{display:flex;flex-direction:column;gap:8px}",
+			".mkp-sh{font-size:12px;font-weight:600;color:var(--dsw-alias-label-tertiary);",
+			"  letter-spacing:.04em;text-transform:uppercase;padding:0 2px}",
+			".mkp-group{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;",
+			"  background:var(--dsw-alias-bg-layer-2);padding:4px 0}",
+			".mkp-row{display:flex;align-items:center;gap:14px;padding:11px 14px}",
+			".mkp-row + .mkp-row{border-top:1px solid var(--dsw-alias-border-l2)}",
+			".mkp-rt{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}",
+			".mkp-label{font-size:13px;font-weight:500;line-height:19px}",
+			".mkp-desc{font-size:12px;color:var(--dsw-alias-label-secondary);line-height:18px}",
+			"/* 开关（仿官方 switch 语法） */",
+			".mkp-switch{position:relative;width:38px;height:22px;border-radius:999px;flex:none;cursor:pointer;",
+			"  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);padding:0;",
+			"  font:inherit;transition:background .14s var(--ds-ease-in-out,ease-in-out)}",
+			".mkp-switch[aria-checked=\"true\"]{background:var(--dsw-alias-state-success-primary);border-color:transparent}",
+			".mkp-switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}",
+			".mkp-switch .mkp-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;",
+			"  background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);",
+			"  transition:transform .14s var(--ds-ease-in-out,ease-in-out)}",
+			".mkp-switch[aria-checked=\"true\"] .mkp-knob{transform:translateX(16px)}",
+			".mkp-switch:disabled{opacity:.45;cursor:not-allowed}",
+			"/* 键值行 */",
+			".mkp-kv{display:flex;justify-content:space-between;gap:14px;padding:10px 14px;font-size:12px;",
+			"  color:var(--dsw-alias-label-secondary)}",
+			".mkp-kv + .mkp-kv{border-top:1px solid var(--dsw-alias-border-l2)}",
+			".mkp-kv b{color:var(--dsw-alias-label-primary);font-weight:600;font-variant-numeric:tabular-nums;",
+			"  text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+			"/* 隐私清单 */",
+			".mkp-priv{display:flex;gap:22px;flex-wrap:wrap;padding:12px 14px}",
+			".mkp-priv > div{flex:1;min-width:180px;display:flex;flex-direction:column;gap:5px}",
+			".mkp-ph{font-size:11px;color:var(--dsw-alias-label-tertiary);letter-spacing:.04em;",
+			"  text-transform:uppercase;font-weight:600}",
+			".mkp-priv ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px;",
+			"  font-size:12px;color:var(--dsw-alias-label-secondary)}",
+			".mkp-yes::before{content:\"✓\";color:var(--dsw-alias-state-success-primary);margin-right:7px;font-weight:600}",
+			".mkp-no::before{content:\"✕\";color:var(--dsw-alias-label-tertiary);margin-right:7px}",
+			"/* 注脚 + 动作 */",
+			".mkp-note{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px;margin:0;padding:0 14px 11px}",
+			".mkp-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 14px 12px}",
+			"button.mkp-btn{min-height:30px;padding:4px 12px;border-radius:8px;",
+			"  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);",
+			"  font:inherit;font-size:12px;font-weight:500;cursor:pointer}",
+			"button.mkp-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+			"button.mkp-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}",
+			"button.mkp-btn[data-armed=\"true\"]{border-color:color-mix(in srgb, var(--dsw-alias-state-danger-primary, #ff6b6b) 45%, transparent);",
+			"  color:var(--dsw-alias-state-danger-primary, #ff6b6b)}",
+			"button.mkp-btn:disabled{opacity:.55;cursor:default}",
+			"a.mkp-link{font-size:12px;font-weight:500;color:var(--dsw-alias-state-business-primary);",
+			"  text-decoration:none;border-radius:4px}",
+			"a.mkp-link:hover{text-decoration:underline}",
+			"a.mkp-link:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}",
+			"/* 命令反馈行 */",
+			".mkp-feedback{font-size:11px;line-height:17px;margin:0;padding:0 14px 11px;",
+			"  color:var(--dsw-alias-state-success-primary)}"
+		].join("");
+		/** 注入一次（data-plugin-css 去重；与 card-html/panel 同范式）。 */
+		function ensureSettingsStyles() {
+			if (typeof document === "undefined") return;
+			const tagId = "madrank-usage/madrank/settings-panel";
+			if (document.querySelector("style[data-plugin-css=\"" + JSON.stringify(tagId).slice(1, -1) + "\"]")) return;
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "madrank-usage";
+			tag.dataset.pluginCss = tagId;
+			tag.textContent = SETTINGS_CSS;
+			document.head.appendChild(tag);
+		}
+		/** 开关行：label + 描述 + role="switch"。disabled 时附 hint。 */
+		function ToggleRow(props) {
+			return (0, react.createElement)("div", { className: "mkp-row" }, (0, react.createElement)("div", { className: "mkp-rt" }, (0, react.createElement)("div", { className: "mkp-label" }, props.label), props.desc !== void 0 ? (0, react.createElement)("div", { className: "mkp-desc" }, props.desc) : null, props.disabled === true && props.disabledHint !== void 0 ? (0, react.createElement)("div", { className: "mkp-desc" }, props.disabledHint) : null), (0, react.createElement)("button", {
+				type: "button",
+				role: "switch",
+				className: "mkp-switch",
+				"aria-checked": props.checked ? "true" : "false",
+				"aria-label": props.label,
+				disabled: props.disabled === true,
+				onClick: () => {
+					if (props.disabled !== true) props.onToggle(!props.checked);
+				}
+			}, (0, react.createElement)("span", {
+				className: "mkp-knob",
+				"aria-hidden": "true"
+			})));
+		}
+		/** 键值行。 */
+		function Kv(props) {
+			return (0, react.createElement)("div", { className: "mkp-kv" }, (0, react.createElement)("span", null, props.k), (0, react.createElement)("b", null, props.v));
+		}
+		/**
+		* 两步确认按钮（v0.2 安全语法：第一次点 = 进入确认态改文案；第二次点 = 真执行）。
+		* busy（命令执行中）时禁用；完成反馈由调用方以 feedback 行呈现。
+		*/
+		function ConfirmButton(props) {
+			const [armed, setArmed] = (0, react.useState)(false);
+			const text = props.busy ? props.label + "…" : armed ? props.confirmLabel : props.label;
+			return (0, react.createElement)("button", {
+				type: "button",
+				className: "mkp-btn",
+				"data-armed": armed && !props.busy ? "true" : "false",
+				"data-madrank-cmd": props.cmd,
+				disabled: props.busy,
+				onClick: () => {
+					if (props.busy) return;
+					if (armed) {
+						setArmed(false);
+						props.onConfirm();
+						return;
+					}
+					setArmed(true);
+				}
+			}, text);
+		}
+		/** 本地时间 「YYYY-MM-DD HH:mm」（最近同步时间戳；无效值回退 '—'）。 */
+		function fmtLocalDateTime(ms) {
+			if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "—";
+			const d = new Date(ms);
+			const p = (n) => String(n).padStart(2, "0");
+			return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+		}
+		/** 紧凑 token 数（与卡片 fmtTokens 同口径；本地副本避免引 card-html 渲染层）。 */
+		function fmtTokensCompact(n) {
+			if (!Number.isFinite(n) || n <= 0) return "0";
+			if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+			if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+			if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+			return String(n);
+		}
+		function MadrankSettingsPanel(props) {
+			const { scope } = props;
+			ensureSettingsStyles();
+			useTickSource(dataTick.subscribe);
+			useTickSource(scope && typeof scope.subscribe === "function" ? scope.subscribe.bind(scope) : void 0);
+			const lang = resolveActiveLang();
+			const sv = scopeValue$1(scope);
+			const enabled = sv?.enabled === true;
+			const autoSync = sv?.autoSync !== false;
+			const snap = dataTick.get();
+			const total7 = (Array.isArray(snap.last7Days) ? snap.last7Days : []).reduce((a, d) => a + (d.primaryTokens > 0 ? d.primaryTokens : 0), 0);
+			const recordDays = Array.isArray(snap.history) ? snap.history.filter((d) => d.primaryTokens > 0).length : 0;
+			const lastSyncText = sv?.global?.updatedAt !== void 0 && sv.global.updatedAt > 0 ? fmtLocalDateTime(sv.global.updatedAt) + " · " + tr(lang, "race7dShort", { v: fmtTokensCompact(sv.global.race7d) }) : tr(lang, "sNeverSynced");
+			const delPending = (sv?.deleteRequested ?? 0) > (sv?.deletedEpoch ?? 0) && (sv?.deleteRequested ?? 0) > 0;
+			const delDone = !delPending && (sv?.deletedEpoch ?? 0) > 0 && (sv?.deleteRequested ?? 0) > 0 && (sv?.deleteRequested ?? 0) <= (sv?.deletedEpoch ?? 0);
+			const clrPending = (sv?.clearLocalRequested ?? 0) > (sv?.clearedEpoch ?? 0) && (sv?.clearLocalRequested ?? 0) > 0;
+			const clrDone = !clrPending && (sv?.clearedEpoch ?? 0) > 0 && (sv?.clearLocalRequested ?? 0) > 0 && (sv?.clearLocalRequested ?? 0) <= (sv?.clearedEpoch ?? 0);
+			return (0, react.createElement)("div", {
+				className: "mkp",
+				"data-madrank-settings": "true"
+			}, (0, react.createElement)("div", { className: "mkp-head" }, (0, react.createElement)("span", {
+				className: "mkp-mark",
+				"aria-hidden": "true"
+			}, "M"), (0, react.createElement)("div", { className: "mkp-headtext" }, (0, react.createElement)("h3", null, tr(lang, "cardTitle")), (0, react.createElement)("div", { className: "mkp-hsub" }, tr(lang, "cardSubtitle"))), (0, react.createElement)("span", { className: "mkp-headspring" }), (0, react.createElement)("span", {
+				className: "mkp-tag",
+				"data-on": enabled ? "true" : "false",
+				role: "status"
+			}, (0, react.createElement)("span", {
+				className: "mkp-dot",
+				"aria-hidden": "true"
+			}), tr(lang, enabled ? "pillOn" : "pillLocal"))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sRanking")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(ToggleRow, {
+				label: tr(lang, "sRankingToggle"),
+				desc: tr(lang, "sRankingDesc"),
+				checked: enabled,
+				onToggle: (next) => {
+					Promise.resolve(next ? scope.set("enabled", true) : scope.unset("enabled")).catch(() => {});
+				}
+			}))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sSync")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(ToggleRow, {
+				label: tr(lang, "sSyncToggle"),
+				desc: tr(lang, "sSyncDesc"),
+				checked: autoSync,
+				disabled: !enabled,
+				disabledHint: enabled ? void 0 : tr(lang, "sSyncOffHint"),
+				onToggle: (next) => {
+					Promise.resolve(scope.set("autoSync", next)).catch(() => {});
+				}
+			}), (0, react.createElement)(Kv, {
+				k: tr(lang, "sLastSync"),
+				v: enabled ? lastSyncText : tr(lang, "sNeverSynced")
+			}))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPrivacy")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)("div", { className: "mkp-priv" }, (0, react.createElement)("div", null, (0, react.createElement)("div", { className: "mkp-ph" }, tr(lang, "sSyncedHead")), (0, react.createElement)("ul", null, [
+				"sItemTokens",
+				"sItemDates",
+				"sItemModels"
+			].map((k) => (0, react.createElement)("li", {
+				key: k,
+				className: "mkp-yes"
+			}, tr(lang, k))))), (0, react.createElement)("div", null, (0, react.createElement)("div", { className: "mkp-ph" }, tr(lang, "sNeverHead")), (0, react.createElement)("ul", null, [
+				"sItemChats",
+				"sItemPrompts",
+				"sItemResponses",
+				"sItemFiles",
+				"sItemKeys",
+				"sItemTools"
+			].map((k) => (0, react.createElement)("li", {
+				key: k,
+				className: "mkp-no"
+			}, tr(lang, k)))))), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)("a", {
+				className: "mkp-link",
+				href: siteUrl(sv?.endpoint, "/privacy"),
+				target: "_blank",
+				rel: "noreferrer noopener"
+			}, tr(lang, "sPrivacyMore"), " →")), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDeleteNote")), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)(ConfirmButton, {
+				cmd: "delete",
+				label: tr(lang, "deleteBtn"),
+				confirmLabel: tr(lang, "deleteConfirmBtn"),
+				busy: delPending,
+				onConfirm: () => {
+					Promise.resolve(scope.set("deleteRequested", Date.now())).catch(() => {});
+				}
+			})), delDone ? (0, react.createElement)("p", {
+				className: "mkp-feedback",
+				"data-madrank-feedback": "delete"
+			}, tr(lang, "deleteDone")) : null)), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sData")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
+				k: tr(lang, "last7"),
+				v: fmtTokensCompact(total7) + " tokens"
+			}), (0, react.createElement)(Kv, {
+				k: tr(lang, "sDataRecords"),
+				v: tr(lang, "sDaysCount", { n: recordDays })
+			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sClearNote")), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)(ConfirmButton, {
+				cmd: "clear",
+				label: tr(lang, "sClearBtn"),
+				confirmLabel: tr(lang, "sClearConfirmBtn"),
+				busy: clrPending,
+				onConfirm: () => {
+					Promise.resolve(scope.set("clearLocalRequested", Date.now())).catch(() => {});
+				}
+			})), clrDone ? (0, react.createElement)("p", {
+				className: "mkp-feedback",
+				"data-madrank-feedback": "clear"
+			}, tr(lang, "sClearDone")) : null)), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
+				k: tr(lang, "sPluginName"),
+				v: "v0.2.0"
+			}), (0, react.createElement)(Kv, {
+				k: tr(lang, "sStatus"),
+				v: "● " + tr(lang, "sPluginEnabled")
+			}), (0, react.createElement)(Kv, {
+				k: tr(lang, "sLastSync"),
+				v: lastSyncText
+			}), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)("a", {
+				className: "mkp-link",
+				href: siteUrl(sv?.endpoint, "/install"),
+				target: "_blank",
+				rel: "noreferrer noopener"
+			}, tr(lang, "sInstallGuide"), " →")))));
+		}
+		//#endregion
+		//#region src/client/panel.ts
+		/**
+		* panel.ts — 侧栏脚部入口 + 卡片面板（React，官方 sidebar.footer.action 槽）。
+		*
+		* 契约要点（slot-catalog 实测）：
+		* - 'sidebar.footer.action' 是 list 槽、replaceRisk: none；fresh id 并列追加。
+		* - 组件形参是 React 渲染管线的一部分（官方 CordisPanel 同款），owner 传入
+		*   `wide: boolean`（false = 56px 收窄栏 → 图标态）。
+		* - 页脚按钮点击后以 **页面居中的全屏模态** 呈现（react-dom Portal 挂 document.body，
+		*   彻底逃离侧栏的 overflow 裁剪与 stacking context；点遮罩 / Esc 关闭）。
+		*
+		* 样式：主题 CSS 变量（非字面色），卡片标记与 settings 卡共用 card-html。
+		*/
+		function cardLang() {
+			return resolveActiveLang();
+		}
+		/** 宽容读取 settings mirror 的 value（scope 未就绪/异常一律 undefined = 离线默认）。 */
+		function scopeValue(scope) {
+			try {
+				return scope?.getSnapshot?.()?.value;
+			} catch {
+				return;
+			}
 		}
 		/**
 		* 挂在 footer 卡与 settings 卡最外层的自家边界。宿主边界只做卸载（「点击就没了」
@@ -1008,34 +1437,22 @@ window.__ModuleLoader__.load({
 			try {
 				const base = dataTick.get();
 				const fixture = (typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ : void 0) ?? {};
-				const sv = scopeValue(scope);
-				const { global, raceUrl } = composeGlobalView(fixture, sv);
-				const snap = {
+				const { global, raceUrl } = composeGlobalView(fixture, scopeValue(scope));
+				html = renderCardHtml({
 					...base,
 					...fixture,
 					global
-				};
-				const delReq = typeof sv?.deleteRequested === "number" ? sv.deleteRequested : 0;
-				const delDone = typeof sv?.deletedEpoch === "number" ? sv.deletedEpoch : 0;
-				html = renderCardHtml(snap, scopeEnabled(scope), anchored || lg ? {
+				}, scopeEnabled(scope), anchored || lg ? {
 					size: "lg",
-					locale: activeLocale,
+					locale: activeLocaleValue(),
 					range,
 					selectedYmd: selYmd,
-					raceUrl,
-					deleteState: {
-						pending: delReq > delDone && delReq > 0,
-						done: delDone > delReq
-					}
+					raceUrl
 				} : {
-					locale: activeLocale,
+					locale: activeLocaleValue(),
 					range,
 					selectedYmd: selYmd,
-					raceUrl,
-					deleteState: {
-						pending: delReq > delDone && delReq > 0,
-						done: delDone > delReq
-					}
+					raceUrl
 				});
 			} catch (e) {
 				console.warn("[madrank] card render fallback", e);
@@ -1045,29 +1462,11 @@ window.__ModuleLoader__.load({
 				const rootEl = ref.current;
 				if (!rootEl) return;
 				const join = rootEl.querySelector("[data-madrank-join]");
-				const leave = rootEl.querySelector("[data-madrank-disable]");
 				const onJoin = () => {
 					Promise.resolve(scope.set("enabled", true)).catch(() => {});
 					force((x) => x + 1);
 				};
-				const onLeave = () => {
-					Promise.resolve(scope.unset("enabled")).catch(() => {});
-					force((x) => x + 1);
-				};
 				join?.addEventListener("click", onJoin);
-				leave?.addEventListener("click", onLeave);
-				const del = rootEl.querySelector("[data-madrank-delete]");
-				const onDelete = () => {
-					if (del == null) return;
-					if (del.getAttribute("data-armed") !== "1") {
-						del.setAttribute("data-armed", "1");
-						del.textContent = tr(cardLang(), "deleteConfirmBtn");
-						return;
-					}
-					Promise.resolve(scope.set("deleteRequested", Date.now())).catch(() => {});
-					force((x) => x + 1);
-				};
-				del?.addEventListener("click", onDelete);
 				const snap = dataTick.get();
 				const fallbackDay = () => {
 					const hist = snap.history;
@@ -1096,8 +1495,6 @@ window.__ModuleLoader__.load({
 				dayBars.forEach((b) => b.addEventListener("click", onDayBar));
 				return () => {
 					join?.removeEventListener("click", onJoin);
-					leave?.removeEventListener("click", onLeave);
-					del?.removeEventListener("click", onDelete);
 					rangeBtns.forEach((b) => b.removeEventListener("click", onRange));
 					dayBars.forEach((b) => b.removeEventListener("click", onDayBar));
 				};
@@ -1278,16 +1675,13 @@ window.__ModuleLoader__.load({
 			}) : null);
 		}
 		/**
-		* Settings 主导航的 MADRank 顶级分区页（同「桌面设置 / Agent 预设」形态）：
-		* lg 变体内联全宽 —— 与脚部模态同一张卡，但随设置内容区自适应
-		* （≥620px 容器自动横排同步区，见 card-html 的 @container 规则）。注册在 index.ts。
+		* Settings 主导航的 MADRank 顶级分区页（同「桌面设置 / Agent 预设」形态）。
+		* v0.2 交互规范：设置页 = CONFIGURATION（参与排名/同步/隐私/本地数据/插件），
+		* 不再复用 Quick View 用量卡 —— 二者分工：侧栏入口「看」，设置页「改」。
+		* 配置面板实现见 settings-panel.ts。
 		*/
 		function MadrankSettingsTab(props) {
-			return (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(CardShell, {
-				scope: props.scope,
-				anchored: false,
-				lg: true
-			}));
+			return (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsPanel, { scope: props.scope }));
 		}
 		function registerFooterEntry(slots, scope) {
 			ensurePanelStyles();
@@ -1373,10 +1767,7 @@ window.__ModuleLoader__.load({
 					name: "settings.plugin.item",
 					key: "madrank.usage.card",
 					order: 90
-				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(CardShell, {
-					scope,
-					anchored: false
-				})));
+				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsPanel, { scope })));
 			});
 			slots.inject("settings.section", () => {
 				slots.register({
@@ -1391,7 +1782,9 @@ window.__ModuleLoader__.load({
 		//#endregion
 		exports.CARD_SETTINGS_NS = SETTINGS_NS;
 		exports.MadrankFooterCell = MadrankFooterCell;
+		exports.MadrankSettingsPanel = MadrankSettingsPanel;
 		exports.MadrankSettingsTab = MadrankSettingsTab;
+		exports.PLUGIN_VERSION = PLUGIN_VERSION;
 		exports.SETTINGS_NS = SETTINGS_NS$1;
 		exports.apply = apply;
 		exports.decodeSettingsSection = decodeSettingsSection;

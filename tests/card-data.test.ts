@@ -97,20 +97,44 @@ describe('cardDataFromList（端到端口径）', () => {
 })
 
 describe('decodeSettingsSection（settings wire 段窄化）', () => {
-  it('取 enabled/endpoint/global；排名 record → 卡片形状', () => {
+  it('取 enabled/endpoint/global + 偏好/命令字段；排名 record → 卡片形状', () => {
     const d = decodeSettingsSection({ enabled: true, endpoint: 'https://e/ingest', global: {"rank":1284,"total":8210000,"topPct":7.4,"participants":2481,"endpoint":"https://madrank.ai/api/usage/ingest","updatedAt":42} })
     expect(d).toEqual({
       enabled: true,
       endpoint: 'https://e/ingest',
       global: { rank: 1284, topPct: 7.4, race7d: 8_210_000, participants: 2481, updatedAt: 42 },
+      autoSync: true,           // 缺席 = 默认开
+      deleteRequested: 0,
+      deletedEpoch: 0,
+      clearLocalRequested: 0,
+      clearedEpoch: 0,
     })
   })
   it('坏形状降级：非对象 → undefined；字段缺失 → enabled=false、global=null', () => {
     expect(decodeSettingsSection('garbage')).toBeUndefined()
     expect(decodeSettingsSection(null)).toBeUndefined()
     expect(decodeSettingsSection([1])).toBeUndefined()
-    expect(decodeSettingsSection({})).toEqual({ enabled: false, endpoint: undefined, global: null })
+    expect(decodeSettingsSection({})).toEqual({
+      enabled: false, endpoint: undefined, global: null, autoSync: true,
+      deleteRequested: 0, deletedEpoch: 0, clearLocalRequested: 0, clearedEpoch: 0,
+    })
     expect(decodeSettingsSection({ enabled: true, global: { rank: 'x' } })?.global).toBeNull()
+  })
+  it('v0.2 偏好与命令字段透传（autoSync=false、delete/clear 时间戳）——设置面板状态机依赖', () => {
+    const d = decodeSettingsSection({
+      enabled: true, autoSync: false,
+      deleteRequested: 100, deletedEpoch: 50,
+      clearLocalRequested: 200, clearedEpoch: 0,
+    })
+    expect(d?.autoSync).toBe(false)
+    expect(d?.deleteRequested).toBe(100)
+    expect(d?.deletedEpoch).toBe(50)
+    expect(d?.clearLocalRequested).toBe(200)
+    expect(d?.clearedEpoch).toBe(0)
+    // 非法数值一律归 0（命令状态机不吃脏 wire）
+    expect(decodeSettingsSection({ deleteRequested: 'x', clearedEpoch: -5 })).toMatchObject({
+      deleteRequested: 0, clearedEpoch: 0,
+    })
   })
   it('宿主注入的 CardGlobal 形状（race7d，无 total/endpoint）必须原样存活（2026-09-01 第六坑回归）', () => {
     // 2026-09-01 生产 describe 的真实 value.global（rank:1 首次点亮当日抓包）

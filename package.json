@@ -1,8 +1,8 @@
 {
   "name": "dsh-madrank",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
   "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
+  "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
@@ -10,6 +10,28 @@
     "./client": "./dist/client.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "COMPATIBILITY.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qomob/dsh-madrank.git"
+  },
+  "homepage": "https://madrank.ai",
+  "bugs": "https://github.com/qomob/dsh-madrank/issues",
+  "keywords": [
+    "dsh",
+    "deepseek",
+    "deepseek-harness",
+    "madrank",
+    "usage",
+    "plugin",
+    "tokens"
+  ],
   "scripts": {
     "build:client": "node tools/build-client.mjs",
     "test": "vitest run",

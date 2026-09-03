@@ -70,6 +70,20 @@ describe('UsageStore', () => {
     expect(Object.keys(store.aggregateDays())).toHaveLength(0)
   })
 
+  it('clearLocalStats 只清统计份额、保留 uploadedDays（v0.2：清本地 ≠ 撤回远端）', () => {
+    const store = new UsageStore(dir)
+    store.replaceSession('s1', 1, makeView([['2026-08-26', 'a/b', 100]]))
+    store.markUploaded('2026-08-26', 'https://x')
+    store.clearLocalStats()
+    expect(Object.keys(store.aggregateDays())).toHaveLength(0)
+    // 已上传的日子不因本地清除而重传（「清本地」与「删远端」语义分离）
+    expect(store.isUploaded('2026-08-26')).toBe(true)
+    // flush 后重载仍保持该状态（持久化口径一致）
+    const reloaded = new UsageStore(dir)
+    expect(Object.keys(reloaded.aggregateDays())).toHaveLength(0)
+    expect(reloaded.isUploaded('2026-08-26')).toBe(true)
+  })
+
   it('换端点后旧端点上传过的日子必须重新上报（isUploaded 端点感知，2026-09-01 生产实锤）', () => {
     const store = new UsageStore(dir)
     store.replaceSession('s1', 1, makeView([['2026-08-26', 'a/b', 100]]))

@@ -114,22 +114,42 @@ export function cardDataFromList(
 }
 
 /**
+ * settings mirror 值的完整客户端形状（v0.2）：
+ * 排名（global）+ 偏好（autoSync）+ 命令通道（delete/clear 的请求/完成时间戳）。
+ * 命令字段由宿主 resolve 注入 deletedEpoch/clearedEpoch、raw 层透传请求字段；
+ * 此前 decode 只保留三字段，删除通道状态到不了 UI（面板完成态永不点亮），本次修复。
+ */
+export interface SettingsSectionValue {
+  enabled: boolean
+  endpoint: string | undefined
+  global: CardGlobal | null
+  /** 自动同步每日用量（默认 true；参与排名关闭时宿主根本不启动同步轮）。 */
+  autoSync: boolean
+  deleteRequested: number
+  deletedEpoch: number
+  clearLocalRequested: number
+  clearedEpoch: number
+}
+
+/**
  * settings wire 段窄化（SettingsScopeSpec.decode）。
  * 显式 decode 使客户端跳过宿主 schemastery 默认校验、原样消费 describe 的
  * value——这是排名走 settings mirror 的前提（resolve 注入的 global 不是
  * schema 字段，默认校验不认识它）。坏形状一律降级：enabled=false、global=null。
  */
-export function decodeSettingsSection(section: unknown): {
-  enabled: boolean
-  endpoint: string | undefined
-  global: CardGlobal | null
-} | undefined {
+export function decodeSettingsSection(section: unknown): SettingsSectionValue | undefined {
   if (typeof section !== 'object' || section === null || Array.isArray(section)) return undefined
   const s = section as Record<string, unknown>
+  const numOr0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
   return {
     enabled: s['enabled'] === true,
     endpoint: typeof s['endpoint'] === 'string' ? s['endpoint'] : undefined,
     global: decodeWireGlobal(s['global']),
+    autoSync: s['autoSync'] !== false,
+    deleteRequested: numOr0(s['deleteRequested']),
+    deletedEpoch: numOr0(s['deletedEpoch']),
+    clearLocalRequested: numOr0(s['clearLocalRequested']),
+    clearedEpoch: numOr0(s['clearedEpoch']),
   }
 }
 

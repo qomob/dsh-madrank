@@ -10,7 +10,8 @@
 import { createElement } from 'react'
 import type { LocaleFaceLike } from './card-html.ts'
 import { cardDataFromList, decodeSettingsSection } from './card-data.ts'
-import { CardErrorBoundary, CardShell, dataTick, MadrankSettingsTab, registerFooterEntry, setActiveLocale } from './panel.ts'
+import { CardErrorBoundary, dataTick, MadrankSettingsTab, registerFooterEntry, setActiveLocale } from './panel.ts'
+import { MadrankSettingsPanel } from './settings-panel.ts'
 
 export const SETTINGS_NS = 'madrank-usage'
 
@@ -27,7 +28,9 @@ export type {
 } from './card-html.ts'
 export type { CardGlobal } from '../global-rank.ts'
 export { decodeSettingsSection } from './card-data.ts'
+export type { SettingsSectionValue } from './card-data.ts'
 export { MadrankFooterCell, MadrankSettingsTab } from './panel.ts'
+export { MadrankSettingsPanel, PLUGIN_VERSION } from './settings-panel.ts'
 
 interface SessionsFaceLike {
   list: { getSnapshot(): unknown; subscribe(fn: () => void): () => void }
@@ -91,13 +94,15 @@ export function apply(ctx: ClientCtxLike): void {
     locale?.subscribe?.(() => { setActiveLocale(safeActive()); refresh() })
   } catch { /* isolated */ }
 
-  // 1) Settings 卡片（plugin 配置分区；keyed：namespace 配对）
+  // 1) Settings 插件配置分区（插件页内的本插件配置卡）。
+  //    v0.2 交互规范：设置面 = CONFIGURATION —— 渲染配置面板而非用量卡，
+  //    与 Quick View（侧栏入口）分工：「看」归侧栏，「改」归设置。
   slots.inject('settings.plugin.item', () => {
     slots.register({
       name: 'settings.plugin.item',
       key: 'madrank.usage.card',
       order: 90,
-    }, () => createElement(CardErrorBoundary, null, createElement(CardShell, { scope, anchored: false })))
+    }, () => createElement(CardErrorBoundary, null, createElement(MadrankSettingsPanel, { scope })))
   })
 
   // 2) Settings 主导航顶级分区（同「桌面设置 / Agent 预设」的 settings.section 槽：

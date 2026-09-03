@@ -15,6 +15,24 @@
 - **真实数据现状**：本机 `~/.madrank/usage/usage-store.json` 已有真实分日历史；**`snap.global` 已接 `/api/usage/ingest` 真实返回**（sync 捕获 race → `global-rank.json` → settings resolve 注入 → 卡片点亮）。`scripts/plugin-join-e2e.mjs` 对本地栈全链 PASS（SYNC→INGEST→RANK→READ→RENDER）；浏览器半侧的 JOIN 点击→实时点亮需真实 DSH GUI 实机验证（§6 第 2 项余量）。「UI 不动，数据一到即点亮」的设计兑现。
 - ⚠️ **本轮全部改动未提交**（git status 约 17 个文件 modified + `src/client/i18n.ts` 未跟踪），接手人 review 后需提交。
 
+## 0.5 v0.2 交互规范：Quick View vs Settings（2026-09-03 定案）
+
+> 产品结论：**侧栏入口负责「看」，设置页负责「改」——两入口不再渲染同一张卡。**
+
+| 入口 | 定位 | 实现 |
+|---|---|---|
+| 侧栏脚部 MADRank → 模态 | **QUICK VIEW**（Dashboard）：今日用量 / 常用模型 / 7天·30天·单日趋势 / 全球排名 | `client/card-html.ts` renderCardHtml（用量卡） |
+| 设置 → MADRank 分区 + 插件页配置卡 | **CONFIGURATION**：参与排名 / 数据同步 / 隐私 / 本地数据 / 插件状态 | `client/settings-panel.ts`（新增，React 组件） |
+
+改动要点：
+
+1. **用量卡（Quick View）**：标题回归 `MADRank` + 副标题（`Your AI usage`/`AI 用量与排名`）；pill = 真实状态（off=空心「全球排名已关闭」/ on=实心「全球排名已开启」）；关闭态 = `你的全球排名 → 尚未参与 → 开启全球排名`（CTA 由「加入」更名「开启」）；**Joined 态移除「退出」「删除已同步数据」**（配置动作归设置），仅留查看排名赛链接。
+2. **设置面板（settings-panel.ts）五区块**：RANKING（`enabled` 真开关）/ SYNC（新设置项 `autoSync`，默认 true；**排名关闭时禁用** —— 不出两个互相矛盾的开关）/ PRIVACY（固定数据定义清单：✓Token/日期/模型 ✕Prompt/Response/文件/APIKey/工具参数 + 删除已同步数据两步确认）/ DATA（7 天汇总 + 本地记录天数 + 清除本地数据两步确认）/ PLUGIN（版本/状态/最近同步/安装说明）。
+3. **新增设置字段与命令缝**：`autoSync: boolean = true`（wire 图谱 ref 4，宿主 tick 同步轮 `enabled && autoSync` 双门控）；`clearLocalRequested`（命令字段，宿主 tick 消费 → `store.clearLocalStats()`（只清统计份额、**保留 uploadedDays**）→ 记 `cleared-epoch` → 回写 0）。decodeSettingsSection 透传全部命令字段（顺带修复：此前 deleteRequested/deletedEpoch 被 strip，删除完成态永远到不了 UI）。
+4. **数据节拍与 locale 抽到 `client/tick.ts`**：panel ↔ settings-panel 互相渲染，共享状态放独立模块避免渲染层成环；`dataTick / useTickSource / setActiveLocale / resolveActiveLang` 从 tick.ts 出口，panel.ts 转出口保持既有导入面。
+5. **验证**：103 测试全绿（11 文件，新增 `tests/settings-panel.test.ts` 9 例 = 规范逐条回归锁）/ tsc 绿 / dist/client.js 已重建（84,197 B）/ verify:dsh 五步 PASS（已归档 COMPATIBILITY.md）。
+6. **生效方式**：插件经 symlink 挂进 DSH profile（`node_modules/dsh-madrank → Documents/madrank/dsh-madrank`）——host 半侧改动（autoSync 门控/清除通道/clearedEpoch 注入）需**重启 DSH**；浏览器半侧刷新页面即得新 bundle。
+
 ## 1. 三条链路（架构记忆图）
 
 ```

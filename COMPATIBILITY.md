@@ -20,6 +20,7 @@ FAIL → compat.ts 对照新契约修订 → 全套 Golden Cases 复跑 → 再�
 |---|---|---|---|---|---|---|
 | v0.1.0 | `141eb6fef8` | ✅ verified（71,590 真实事件 + 脱敏 fixture 双证） | ✅ verified（register / onChanged / snapshot feed） | ✅ verified（vendor cordis boot EXIT:0） | 2026-08-27 | `npm run verify:dsh` |
 | v0.1.0 | `0.1.1-rc.2`（npm 安装包） | ✅ verified（golden-replay + reconcile 双 PASS） | ✅ verified（**rc.2 起注册必须带 `wire`**：新增 `stateSchema`+`wire` 双形状；rc.2 runtime spike 实证——无 wire 即 host-only，snapshot/onChanged 静默跳过 ⇒ 卡片全零事故） | ✅ verified（五门 PASS · RUN_SPIKE=0） | 2026-08-31 | `npm run verify:dsh` + rc.2 spike |
+| v0.1.0（v0.2 交互规范：Quick View/Settings 分工 + autoSync/clearLocal 通道） | `141eb6fef8` | ✅ verified（103 tests + golden-replay PASS） | ✅ verified（wire 图谱 +4=autoSync；decode 透传命令字段） | ✅ verified（五门 PASS） | 2026-09-03 | `npm run verify:dsh` |
 
 ## 报警器分层
 
