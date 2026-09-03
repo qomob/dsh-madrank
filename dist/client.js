@@ -357,7 +357,8 @@ window.__ModuleLoader__.load({
 				joinCta: "Join global ranking",
 				yourRank: "Your global rank",
 				topChip: "TOP {x}%",
-				race7dLabel: "7-day tokens",
+				onlyParticipant: "Only participant",
+				race7dLabel: "Ranked · 7-day uncached",
 				shareFine: "One anonymous daily number; a random code stands for you; chats never leave your device.",
 				joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
 				viewRace: "View race",
@@ -390,7 +391,8 @@ window.__ModuleLoader__.load({
 				joinCta: "加入全球排名",
 				yourRank: "你的全球排名",
 				topChip: "前 {x}%",
-				race7dLabel: "7 日 Token",
+				onlyParticipant: "当前唯一参与者",
+				race7dLabel: "计入全球排名 · 7 日未缓存",
 				shareFine: "每天只上报一条匿名汇总数字；身份只是随机代号，不关联任何账号；聊天内容永不上传。",
 				joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
 				viewRace: "查看排名赛",
@@ -802,10 +804,11 @@ window.__ModuleLoader__.load({
 		* 大按钮退场 \u2192 View race 链接 + 轻量 Leave（panel.ts 仍按 data-madrank-disable 绑定）。
 		*/
 		function htmlJoined(hasRank, global, lang, raceUrl) {
+			const sole = hasRank && global.participants === 1;
 			const rankBlock = hasRank ? [
 				"<div class=\"mk-rankrow\">",
 				"<span class=\"mk-big\">#" + global.rank.toLocaleString("en-US") + "</span>",
-				"<span class=\"mk-chip\" data-tone=\"hot\">" + tr(lang, "topChip", { x: global.topPct.toFixed(1) }) + "</span>",
+				"<span class=\"mk-chip\" data-tone=\"hot\">" + (sole ? tr(lang, "onlyParticipant") : tr(lang, "topChip", { x: global.topPct.toFixed(1) })) + "</span>",
 				"</div>",
 				"<div class=\"mk-sub\"><span class=\"mk-rlab\">" + tr(lang, "race7dLabel") + "</span><b>" + fmtTokens(global.race7d) + "</b></div>"
 			].join("") : "<p class=\"mk-fine\">" + tr(lang, "joinedPending") + "</p>";
@@ -827,7 +830,8 @@ window.__ModuleLoader__.load({
 			return htmlJoined(g != null, g ?? {
 				rank: 0,
 				topPct: 0,
-				race7d: 0
+				race7d: 0,
+				participants: 0
 			}, lang, raceUrl);
 		}
 		/**

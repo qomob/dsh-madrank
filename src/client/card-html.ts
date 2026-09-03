@@ -491,16 +491,20 @@ function htmlJoinCta(lang: Lang): string {
  */
 function htmlJoined(
   hasRank: boolean,
-  global: { rank: number; topPct: number; race7d: number },
+  global: { rank: number; topPct: number; race7d: number; participants?: number },
   lang: Lang,
   raceUrl: string,
 ): string {
+  // GAP-D 信任修补：#1/1 时 TOP 100% 读作垫底 —— 唯一参与者改显 onlyParticipant
+  const sole = hasRank && global.participants === 1
   const rankBlock = hasRank
     ? [
         '<div class="mk-rankrow">',
         '<span class="mk-big">#' + global.rank.toLocaleString('en-US') + '</span>',
         '<span class="mk-chip" data-tone="hot">' +
-          tr(lang, 'topChip', { x: global.topPct.toFixed(1) }) + '</span>',
+          (sole
+            ? tr(lang, 'onlyParticipant')
+            : tr(lang, 'topChip', { x: global.topPct.toFixed(1) })) + '</span>',
         '</div>',
         '<div class="mk-sub"><span class="mk-rlab">' + tr(lang, 'race7dLabel') + '</span><b>' +
           fmtTokens(global.race7d) + '</b></div>',
@@ -523,7 +527,7 @@ function htmlJoined(
 function htmlSync(enabled: boolean, snap: CardSnapshot, lang: Lang, raceUrl: string): string {
   if (!enabled) return htmlJoinCta(lang)
   const g = snap.global
-  return htmlJoined(g != null, g ?? { rank: 0, topPct: 0, race7d: 0 }, lang, raceUrl)
+  return htmlJoined(g != null, g ?? { rank: 0, topPct: 0, race7d: 0, participants: 0 }, lang, raceUrl)
 }
 
 /**

@@ -68,12 +68,13 @@ describe('renderCardHtml · View race 链接（self-host 派生）', () => {
 describe('renderCardHtml · 状态 B（Joined）', () => {
   const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
 
-  it('pill=Global ranking on；底部 Your global rank 块：#1,284 / TOP 7.4% / 7-day tokens 8.21M', () => {
+  it('pill=Global ranking on；底部 Your global rank 块：#1,284 / TOP 7.4% / Ranked · 7-day uncached 8.21M', () => {
     const html = renderCardHtml(joined, true)
     expect(html).toContain('Global ranking on')
     expect(html).toContain('Your global rank')
     expect(html).toContain('#1,284')
     expect(html).toContain('TOP 7.4%')
+    expect(html).toContain('Ranked · 7-day uncached')
     expect(html).toContain('8.21M')
   })
 
@@ -133,7 +134,7 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
     expect(html).toContain('你的全球排名')
     expect(html).toContain('#1,284')
     expect(html).toContain('前 7.4%')
-    expect(html).toContain('7 日 Token')
+    expect(html).toContain('计入全球排名 · 7 日未缓存')
     expect(html).toContain('查看排名赛')
     expect(html).toContain('>退出</button>')
     expect(html).toContain('href="https://madrank.ai/race"')
@@ -162,6 +163,37 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
     const html = renderCardHtml(base, false, { locale: 'fr-FR' })
     expect(html).toContain('Local only')
     expect(html).not.toContain('仅本地')
+  })
+})
+
+describe('renderCardHtml · #1/1 信任修补（GAP-D：唯一参与者不显示 TOP 100%）', () => {
+  const sole = { ...base, global: { rank: 1, topPct: 100, race7d: 472_942, participants: 1 } }
+
+  it('participants=1：不出现 TOP 100%，改显 Only participant + 排名 #1', () => {
+    const html = renderCardHtml(sole, true)
+    expect(html).not.toContain('TOP 100')
+    expect(html).toContain('#1')
+    expect(html).toContain('Only participant')
+  })
+
+  it('participants=1 zh：当前唯一参与者，无「前 100」', () => {
+    const html = renderCardHtml(sole, true, { locale: 'zh' })
+    expect(html).not.toContain('前 100')
+    expect(html).toContain('当前唯一参与者')
+  })
+
+  it('participants>1：正常 TOP x%，不触发唯一参与者文案', () => {
+    const multi = { ...base, global: { rank: 2, topPct: 33.3, race7d: 5_000_000, participants: 3 } }
+    const html = renderCardHtml(multi, true)
+    expect(html).toContain('TOP 33.3%')
+    expect(html).not.toContain('Only participant')
+  })
+
+  it('participants 缺席（旧快照/坏 wire）：按多人口径渲染 TOP x%', () => {
+    const legacy = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
+    const html = renderCardHtml(legacy, true)
+    expect(html).toContain('TOP 7.4%')
+    expect(html).not.toContain('Only participant')
   })
 })
 
