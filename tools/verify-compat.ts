@@ -8,8 +8,7 @@
  *   4) 真实 loader spike（env RUN_SPIKE=0 可跳过；需要 .spike/ 复现场景）
  *   5) tsc + 全量 vitest
  *
- * 输出：CONPACTIBILITY REPORT（人读）+ --json（机器可读），任一步失败 exit 1。
- * 通过后把矩阵行追加进 COMPATIBILITY.md 即完成一次升级归档。
+ * 输出：COMPATIBILITY REPORT（人读）+ --json（机器可读），任一步失败 exit 1。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -91,7 +90,7 @@ function main(): void {
       for (const l of row) console.log(l)
       console.log('')
       console.log(okAll
-        ? 'VERDICT: PASS ✓  → 可将此行归档进 COMPATIBILITY.md'
+        ? 'VERDICT: PASS ✓'
         : 'VERDICT: FAIL ✗  → token-meter / projection 契约可能已变更')
     }
     process.exit(okAll ? 0 : 1)
