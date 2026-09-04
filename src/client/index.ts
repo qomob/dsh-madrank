@@ -95,13 +95,13 @@ export function apply(ctx: ClientCtxLike): void {
   } catch { /* isolated */ }
 
   // 1) Settings 插件配置分区（插件页内的本插件配置卡）。
-  //    v0.2 交互规范：设置面 = CONFIGURATION —— 渲染配置面板而非用量卡，
-  //    与 Quick View（侧栏入口）分工：「看」归侧栏，「改」归设置。
+  //    官方 cookbook（adding-a-settings-card.md）：settings.plugin.item 是 keyed
+  //    槽、键 = 命名空间 —— Plugins 页按宿主已服务的命名空间派发，键对上即自动
+  //    配对（旧键 madrank.usage.card 永不落入该派发）。keyed 条目不声明 order。
   slots.inject('settings.plugin.item', () => {
     slots.register({
       name: 'settings.plugin.item',
-      key: 'madrank.usage.card',
-      order: 90,
+      key: SETTINGS_NS,
     }, () => createElement(CardErrorBoundary, null, createElement(MadrankSettingsPanel, { scope })))
   })
 

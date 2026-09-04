@@ -2106,8 +2106,7 @@ window.__ModuleLoader__.load({
 			slots.inject("settings.plugin.item", () => {
 				slots.register({
 					name: "settings.plugin.item",
-					key: "madrank.usage.card",
-					order: 90
+					key: SETTINGS_NS$1
 				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsPanel, { scope })));
 			});
 			slots.inject("settings.section", () => {

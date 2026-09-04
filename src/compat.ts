@@ -1,35 +1,30 @@
 /**
  * compat.ts — dsh-madrank 与 DSH 的唯一耦合面。
  *
- * 开发者预览期的防碎化策略：不 import @deepseek-ai/*，
- * 以结构化类型镜像"本包实际依赖的最小契约"，并在此处逐条标注其权威出处。
- * 接缝升级时只需对照本文件与当时的 commit。
+ * 防碎化策略（开发者预览期延续）：不 import @deepseek-ai/*，
+ * 以结构化类型镜像「本包实际依赖的最小契约」，并在此处逐条标注其权威出处。
+ * 接缝升级时只需对照本文件与当时的官方包。官方文档路径：
+ *   https://github.com/deepseek-ai/deepseek-harness （docs/ + package README）
  *
- * 权威源码映射（截至 2026-08 checkout）：
- * - ProjectionRegistryLike.register/onChanged
- *     packages/session/session-projection/src/index.ts
- *     （register(definition) 返回 disposer；onChanged((session,key,value,seq)=>)）
- * - ProjectionDefinitionLike：key/schema(ZodType)/init/apply/view/stateVersion
- *     同上；init/apply/view 必须同步纯函数，state 必须可 JSON 化
- * - ⚠️ rc.2 契约（npm @deepseek-ai/dsh 0.1.1-rc.2 · dsh-session-projection）：
- *     register 分双轨——带 wire = client-visible；不带 = host-only。
- *     host-only：state 照常折算/落 checkpoint，但 snapshot()/onChanged 一律跳过
- *     （lib/index.js: "if (def.wire === void 0) continue"）。
- *     stateSchema 是 restore 前置校验；缺字段不报错，只会让键静默失效。
- *     实测事故：v0.1.0 按 rc.8 形状注册（无 wire）⇒ 卡片全零、store 不落盘。
- * - SessionEventLike：{ type, seq:number, time:number, data }
+ * 权威源码映射（2026-09 对齐 npm @deepseek-ai/* 0.1.1-rc.2 系）：
+ * - ProjectionDefinition：key/stateSchema(ZodType)/init/apply/wire?/stateVersion
+ *     packages/session/session-projection/README.zh.md ——
+ *     wire 缺席 = host-only；register/onChanged 均返回 effect 绑定的 disposer；
+ *     apply 对无关事件必须返回同一引用（Object.is 守卫零下游工作）。
+ * - ProjectionRegistry.register/onChanged
+ *     packages/session/session-projection/README.zh.md（同 README 第 7-16 行）
+ * - SessionEvent：{ type, seq:number, time:number, data }
  *     packages/core/session/src/types.ts（SessionEvent）
  * - 用量事件：
  *     assistant/chunk  data:{ turn, step, chunk:{ type:'usage', usage } }
  *     assistant/message data:{ turn, step, message, usage?, ... }
- *     packages/core/session/src/types.ts L266-277、
- *     packages/llm/token-meter/src/usage-projection.ts usageOf()
- * - 模型标识事件：
- *     request/header   data:{ header:{ config:{ provider, model } }, reason }
- *     packages/core/session/src/types.ts L308、packages/llm/llm/src/call-config.ts L23
+ * - 模型标识事件：request/header  data:{ header:{ config:{ provider, model } } }
  * - 设置注册（Host 半侧）：
- *     installSettingsSection(ctx, ns, schema, current, handlers)
- *     docs/cookbook/adding-a-settings-card.zh.md
+ *     ctx.settings.register(ns, schema, { base }) —— schemastery schema
+ *     （可调用 + toJSON；官方 cookbook adding-a-settings-card.md 的
+ *     installSettingsSection 语义 = register + setSource + watch + onChange）。
+ * - timer 服务：ctx.timer（timeout/interval/throttle/debounce，fiber-bound）；
+ *     packages/.../cordis-plugin-timer（官方计时器，替代裸 setTimeout/setInterval）。
  */
 
 export interface TokenUsageBuckets {
@@ -57,71 +52,73 @@ export interface SessionRefLike {
   readonly id: string
 }
 
-/** schema 只被宿主以 .parse / .safeParse 调用（真实 zod 对象满足此形状）。 */
+/** schema 只被宿主以 .parse / .safeParse / 可调用方式消费（真实 zod 满足）。 */
 export interface SchemaLike {
   parse(value: unknown): unknown
   safeParse(value: unknown): { success: boolean; data?: unknown; error?: unknown }
 }
 
-/** rc.2 客户端视图声明：缺席 = host-only 单元（值不出宿主、onChanged 不触发）。 */
+/** 客户端视图声明（wire 缺席 = host-only 单元：值不出宿主、onChanged 不触发）。 */
 export interface ProjectionWireLike {
   readonly viewSchema: SchemaLike
   view(state: never): unknown
 }
 
+/**
+ * 与官方 ProjectionDefinition 同构的最小契约：
+ * `{ key, stateSchema, init(), apply(state, event), wire?, stateVersion }`。
+ * ⚠️ 官方状态必须可 JSON 化；apply 对无关事件返回同一引用。
+ */
 export interface ProjectionDefinitionLike {
   readonly key: string
-  /** rc.8 顶层视图 schema（保留：双版本兼容）。 */
-  readonly schema?: SchemaLike
-  /** rc.2：持久化状态在 seed/restore 前必须通过校验（失败则该键按缺席处理）。 */
+  /** 持久化状态在 seed/restore 前必须通过校验（失败则该键按缺席处理）。 */
   readonly stateSchema?: SchemaLike
   init(): unknown
   apply(state: never, event: SessionEventLike): unknown
-  /** rc.8 顶层客户端视图（保留：双版本兼容）。 */
-  view?(state: never): unknown
-  /** rc.2：客户端视图声明。rc.2 的 snapshot()/onChanged 只认 client-visible 单元。 */
+  /** 客户端视图声明：缺席 = host-only 单元。 */
   readonly wire?: ProjectionWireLike
   readonly stateVersion: number
 }
 
-/**
- * rc.2：SettingsProvider（ctx.settings）最小镜像。
- * ⚠️ register 的 schema 按"可调用"约定消费——宿主 resolve() 里执行
- * schema(mergeLayers(base, section))（schemastery 习惯）；zod 对象不可调用，
- * 必须传 (merged) => zodSchema.parse(merged) 形状的适配器。
- * ns 须匹配 /^[a-z][a-z0-9-]*$/（settingsNamespace 的校验规则）。
- */
-export interface SettingsScopeMirrorLike {
-  get(): MadrankSettings
-  watch(cb: () => void): () => void
+/** 官方 SettingsScope 的最小镜像（get/watch/update/replace 是写路径）。 */
+export interface SettingsScopeMirrorLike<T> {
+  get(): T
+  watch(cb: (next?: T, prev?: T) => void | Promise<void>): () => void
+  update(patch: object): Promise<void>
+  replace?(section: object): Promise<void>
 }
 
+/**
+ * ctx.settings 的最小镜像。register 的 schema 按官方 schemastery 约定消费：
+ * 宿主 resolve() 里执行 schema(mergeLayers(base, section))（可调用），
+ * describe() 序列化 schema.toJSON() —— schemastery `z<T>` 原样满足两者。
+ */
+import type z from '@deepseek-ai/schemastery'
+
 export interface SettingsProviderLike {
-  register(
+  register<T>(
     ns: string,
-    schema: (merged: unknown) => MadrankSettings,
-    options: { base?: MadrankSettings; validate?: (v: MadrankSettings) => void },
-  ): SettingsScopeMirrorLike
+    schema: z<T>,
+    options: { base?: Partial<T>; applies?: 'live' | 'restart'; validate?: (v: T) => void },
+  ): SettingsScopeMirrorLike<T>
+}
+
+/** 官方 timer 服务的可调用面（fiber 结束时自动 dispose）。 */
+export interface TimerLike {
+  timeout(callback: () => void, delay: number): () => void
+  interval(callback: () => void, delay: number): () => void
 }
 
 /** cordis ctx 上本插件触达的成员。 */
 export interface CtxLike {
   sessionProjections?: ProjectionRegistryLike
-  /** rc.8：ctx 成员形式（rc.2 已移出 ctx，成为 dsh-settings 具名导出）。 */
-  installSettingsSection?: (
-    ctx: unknown,
-    ns: symbol | string,
-    schema: unknown,
-    current: MadrankSettings,
-    handlers: {
-      validate?: (v: MadrankSettings) => void
-      setSource?: (get: () => MadrankSettings) => void
-      onChange?: () => void
-    },
-  ) => void
-  /** rc.2：设置服务挂 ctx.settings；懒解析走 ctx.inject(['settings'], cb)。 */
+  /** rc.2：设置服务挂 ctx.settings；官方消费 = register + setSource + watch。 */
   settings?: SettingsProviderLike
-  inject?(deps: readonly string[], cb: (sctx: { settings?: SettingsProviderLike }) => void): void
+  /** 官方 timer 服务（timeout/interval 等；缺席时插件回退全局计时器）。 */
+  timer?: TimerLike
+  /** 服务缺席时经 inject 等待（可选能力消费，官方约定）。 */
+  inject?(deps: readonly string[], cb: (sctx: Record<string, unknown>) => void): void
+  on?(ev: string, cb: () => void): void
   logger?: {
     info(message: string, ...rest: unknown[]): void
     warn(message: string, ...rest: unknown[]): void
@@ -129,6 +126,7 @@ export interface CtxLike {
   }
 }
 
+/** sync 链路消费的最小设置面（enabled/endpoint 即全部依赖）。 */
 export interface MadrankSettings {
   enabled: boolean
   endpoint: string

@@ -41,13 +41,13 @@
     "verify:dsh": "node --experimental-strip-types tools/verify-compat.ts"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2",
     "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "dsh": {
     "client": {
-      "platform": "web",
-      "_note": "浏览器半侧经 DSH 客户端模块系统打包后启用；见 README 集成章节"
+      "platform": "web"
     }
   },
   "devDependencies": {

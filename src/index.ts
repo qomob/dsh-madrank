@@ -12,9 +12,20 @@
  * 4. Settings section：enabled / autoSync / endpoint + 删除与清除命令字段
  *    （v0.2 交互规范：设置面 = CONFIGURATION，浏览器半侧渲染 settings-panel.ts；
  *    Quick View 卡片只负责「看」，配置动作全部收进设置）
+ *
+ * 官方文档对齐（2026-09，对齐 @deepseek-ai 0.1.1-rc.2 系）：
+ * - 投影定义：官方 ProjectionDefinition 形状 `{key, stateSchema, init, apply,
+ *   wire?, stateVersion}`（stateSchema 为 zod ZodType，wire.viewSchema 同）；
+ *   已移除 rc.8 遗留的顶层 schema/view 双轨（wire 是唯一客户端视图声明）。
+ * - 设置注册：官方 schemastery `z<T>` schema + installSettingsSection 语义
+ *   （register(ns, schema, {base}) + setSource + watch + onChange + dispose 回退）；
+ *   cookbook docs/cookbook/adding-a-settings-card.md 是权威。
+ * - 计时：官方 timer 服务（ctx.timer.timeout/interval，fiber 绑定 disposer）；
+ *   无缝环境（单测/工具链裸跑）回退全局计时器，功能不受损。
  */
 
-import { z } from 'zod'
+import z from '@deepseek-ai/schemastery'
+import { z as zod } from 'zod'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -33,31 +44,28 @@ import {
 import type { GlobalRankRecord } from './global-rank.ts'
 import { readGlobalRank, writeGlobalRank } from './global-rank-file.ts'
 import { fetchShareToken, fetchRaceMe } from './whoami.ts'
+import {
+  SETTINGS_NAMESPACE,
+  MadrankUsageSettingsSchema,
+} from './settings-schema.ts'
+import type {
+  MadrankResolvedSettings,
+  MadrankUsageSettings,
+} from './settings-schema.ts'
 
 export const name = 'dsh-madrank'
 
 /** cordis DI：投影缝 + settings 服务都是硬依赖。
  * ⚠️ 加载器只挂载此处声明过的服务——未声明的服务即使 ctx.inject(['x'], cb) 也永不触发
- * （2026-09-01 实锤：settings 未声明 ⇒ 注册回调静默失效 ⇒ Join 永远无声）。 */
-export const inject = ['sessionProjections', 'settings']
+ * （2026-09-01 实锤：settings 未声明 ⇒ 注册回调静默失效 ⇒ Join 永远无声）。
+ * timer 一并声明：官方计时服务（cordis-plugin-timer 随 dsh-base 挂载），
+ * start() 里经 ctx.get('timer') 使用，无缝环境回退全局计时器。 */
+export const inject = ['sessionProjections', 'settings', 'timer']
 
 // ── 设置 ────────────────────────────────────────────────────
-export const SETTINGS_NS = 'madrank-usage'
+export const SETTINGS_NS = SETTINGS_NAMESPACE
 
-const SettingsSchema = z.object({
-  /** 加入全球榜必须显式开启；默认完全离线。 */
-  enabled: z.boolean().default(false),
-  /** MADRank ingest 端点。 */
-  endpoint: z.string().default('https://madrank.ai/api/usage/ingest'),
-  /** 自动同步每日聚合（默认 true；enabled=false 时同步轮根本不启动）。 */
-  autoSync: z.boolean().default(true),
-  /** 删除通道命令字段（设置面板两步确认后写入；宿主 tick 执行后回写 0）。 */
-  deleteRequested: z.number().int().nonnegative().optional(),
-  /** 清除本地数据命令字段（只清本机统计；宿主 tick 执行后回写 0）。 */
-  clearLocalRequested: z.number().int().nonnegative().optional(),
-})
-
-export type Settings = z.infer<typeof SettingsSchema>
+export type Settings = MadrankUsageSettings
 
 /** 匿名安装 ID：本地生成 UUID，服务端加盐哈希后才是 anonId（README 写明换机=新身份）。 */
 function resolveAnonId(): string {
@@ -195,7 +203,7 @@ const storeHolder: {
   /** rc.2 settings scope 引用：update 用于同步后触碰 raw section（点亮客户端 mirror）。 */
   settingsScope?: { update?(patch: Record<string, unknown>): void | Promise<void> }
 } = {
-  settings: SettingsSchema.parse({}) as Settings,
+  settings: MadrankUsageSettingsSchema({} as MadrankUsageSettings) as Settings,
   globalRank: null,
 }
 
@@ -203,7 +211,7 @@ const storeHolder: {
  * 同步后触碰设置文档的合成标记字段（syncEpoch）：raw user layer 变更 →
  * revision bump → settings/document-updated → 浏览器 settings mirror 重读
  * describe → 宿主 resolve 重跑（重读排名内存镜像）→ 卡片 Joined 态实时点亮。
- * 该字段被 zod strip，永不出现在 resolve 输出；只读 provider / memory 模式下
+ * 该字段被 schemastery strip，永不出现在 resolve 输出；只读 provider / memory 模式下
  * update 会抛错——静默退化到下一次连接刷新，功能不受损。
  */
 function touchSettingsDocument(): void {
@@ -213,76 +221,96 @@ function touchSettingsDocument(): void {
     // isolated：触碰失败只影响点亮时机
   }
 }
+
 /** 活设置来源：attach 前读默认值，attach 后由 setSource 换成宿主解析 thunk。 */
 let settingsSource: () => Settings = () => storeHolder.settings
 
-const viewSchema = buildViewSchema()
-const definition: ProjectionDefinitionLike = {
-  key: PROJECTION_KEY,
-  // —— rc.8 旧字段：保留，双版本兼容 ——
-  schema: viewSchema as unknown as ProjectionDefinitionLike['schema'],
-  view: ((state: MadrankState) => buildView(state)) as never,
-  // —— rc.2 契约：必须显式声明客户端视图，否则按 host-only 处理
-  //    （值不出宿主、onChanged 不触发 ⇒ 卡片全零 / store 不落盘）——
-  stateSchema: buildStateSchema() as unknown as ProjectionDefinitionLike['stateSchema'],
-  wire: {
-    viewSchema: viewSchema as unknown as NonNullable<ProjectionDefinitionLike['wire']>['viewSchema'],
-    view: ((state: MadrankState) => buildView(state)) as never,
+/**
+ * resolve 出口 schema：官方 schemastery transform —— schema(merged) 时把
+ * 「同步链路捕获的全球排名 + 删除/清除完成时间戳」作为镜像字段注入解析值。
+ * 与旧 zod-callable 适配器行为等价，但 schema 是官方可调用 + toJSON 对象，
+ * 手写 uid/refs toJSON 图整个消失。注入字段不进持久化文档。
+ */
+const resolveSettingsSchema = z.transform(
+  MadrankUsageSettingsSchema as z<MadrankUsageSettings>,
+  (value): MadrankResolvedSettings => {
+    const parsed = value as MadrankUsageSettings
+    const rec = storeHolder.globalRank
+    const global = parsed.enabled && rec && sameOrigin(rec.endpoint, parsed.endpoint)
+      ? cardGlobalFromRecord(rec)
+      : null
+    return {
+      ...parsed,
+      global,
+      deletedEpoch: readDeletedEpoch(),
+      clearedEpoch: readClearedEpoch(),
+    }
   },
-  init: () => initState(),
-  apply: ((state: MadrankState, event: import('./compat.ts').SessionEventLike) =>
-    applyEvent(state, event)) as never,
-  stateVersion: STATE_VERSION,
-}
+)
 
 /**
- * wire 校验：view 输出的形状契约。
- * 用真实 zod 对象——宿主以 .parse/.safeParse 调用。
+ * 投影定义：官方 ProjectionDefinition 形状（stateSchema 为 zod ZodType +
+ * wire 客户端视图）。无 rc.8 遗留字段。stateSchema 校验持久化折叠种子；
+ * wire.viewSchema 校验出宿主值 —— 官方类型来自 'zod'（与 settings 的 schemastery 分工）。
  */
 function buildViewSchema() {
-  const daySchema = z.object({
-    models: z.record(z.string(), z.object({
-      inputTokens: z.number().int().nonnegative(),
-      outputTokens: z.number().int().nonnegative(),
-      cacheReadTokens: z.number().int().nonnegative(),
-      cacheWriteTokens: z.number().int().nonnegative(),
-      requests: z.number().int().nonnegative(),
+  const daySchema = zod.object({
+    models: zod.record(zod.string(), zod.object({
+      inputTokens: zod.number().int().nonnegative(),
+      outputTokens: zod.number().int().nonnegative(),
+      cacheReadTokens: zod.number().int().nonnegative(),
+      cacheWriteTokens: zod.number().int().nonnegative(),
+      requests: zod.number().int().nonnegative(),
     })),
-    activeSeconds: z.number().int().nonnegative(),
+    activeSeconds: zod.number().int().nonnegative(),
   })
-  return z.object({
-    version: z.literal(STATE_VERSION),
-    days: z.record(z.string(), daySchema),
-    totalRequests: z.number().int().nonnegative(),
-    totalPrimaryTokens: z.number().int().nonnegative(),
-    totalCachedTokens: z.number().int().nonnegative(),
+  return zod.object({
+    version: zod.literal(STATE_VERSION),
+    days: zod.record(zod.string(), daySchema),
+    totalRequests: zod.number().int().nonnegative(),
+    totalPrimaryTokens: zod.number().int().nonnegative(),
+    totalCachedTokens: zod.number().int().nonnegative(),
   })
 }
 
-/**
- * rc.2：持久化状态（MadrankState）在 seed/restore 前必须通过 stateSchema。
- * 注意校验对象是 fold 内部状态（含 activity/last），与 wire 视图形状不同。
- */
+/** 持久化状态（MadrankState）在 seed/restore 前必须通过 stateSchema（zod）。 */
 function buildStateSchema() {
-  const buckets = z.object({
-    inputTokens: z.number(),
-    outputTokens: z.number(),
-    cacheReadTokens: z.number(),
-    cacheWriteTokens: z.number(),
-    requests: z.number(),
+  const buckets = zod.object({
+    inputTokens: zod.number(),
+    outputTokens: zod.number(),
+    cacheReadTokens: zod.number(),
+    cacheWriteTokens: zod.number(),
+    requests: zod.number(),
   })
-  return z.object({
-    currentModelKey: z.string().nullable(),
-    days: z.record(z.string(), z.record(z.string(), buckets)),
-    activity: z.record(z.string(), z.array(z.tuple([z.number(), z.number()]))),
-    last: z.object({
-      turn: z.number(),
-      step: z.number(),
-      ymd: z.string(),
-      modelKey: z.string(),
+  return zod.object({
+    currentModelKey: zod.string().nullable(),
+    days: zod.record(zod.string(), zod.record(zod.string(), buckets)),
+    activity: zod.record(zod.string(), zod.array(zod.tuple([zod.number(), zod.number()]))),
+    last: zod.object({
+      turn: zod.number(),
+      step: zod.number(),
+      ymd: zod.string(),
+      modelKey: zod.string(),
       buckets,
     }).nullable(),
   })
+}
+
+function buildDefinition(): ProjectionDefinitionLike {
+  const viewSchema = buildViewSchema()
+  const stateSchema = buildStateSchema()
+  return {
+    key: PROJECTION_KEY,
+    stateSchema: stateSchema as unknown as ProjectionDefinitionLike['stateSchema'],
+    init: () => initState(),
+    apply: ((state: MadrankState, event: Parameters<typeof applyEvent>[1]) =>
+      applyEvent(state, event)) as never,
+    wire: {
+      viewSchema: viewSchema as unknown as NonNullable<ProjectionDefinitionLike['wire']>['viewSchema'],
+      view: ((state: MadrankState) => buildView(state)) as never,
+    },
+    stateVersion: STATE_VERSION,
+  }
 }
 
 export function apply(ctx: CtxLike & Record<string, unknown>): void {
@@ -292,7 +320,8 @@ export function apply(ctx: CtxLike & Record<string, unknown>): void {
     error: (m: string) => console.error('[madrank]', m),
   }
   // 投影缝获取：直取（大多数 boot 时序下可用）→ 缺席时降级 ctx.inject 等待
-  // （服务提供方 README 的官方消费模式，对插件加载顺序免疫）。
+  // （官方 README 的消费模式：可选能力经 ctx.inject(['sessionProjections'], …)
+  // 注册，无注册表的 headless 组装完全不受影响）。
   const registry = (ctx as { sessionProjections?: import('./compat.ts').ProjectionRegistryLike })
     .sessionProjections
   if (registry && typeof registry.register === 'function') {
@@ -323,6 +352,34 @@ export function apply(ctx: CtxLike & Record<string, unknown>): void {
   }
 }
 
+/** 官方 timer 服务优先（可选能力，经 ctx.get('timer') 读取——不声明 inject，
+ * Guard 绝不会因读取未声明属性抛错）；无缝环境（测试/裸跑）回退全局计时器，
+ * disposer 同形（返回清理函数）。 */
+function timerOf(ctx: CtxLike): {
+  timeout(cb: () => void, delay: number): () => void
+  interval(cb: () => void, delay: number): () => void
+} {
+  const get = (ctx as { get?: (key: string) => unknown }).get
+  const t = (typeof get === 'function' ? get('timer') : undefined) as
+    import('./compat.ts').TimerLike | undefined
+  const timer = t ?? (ctx as { timer?: import('./compat.ts').TimerLike }).timer
+  if (timer && typeof timer.timeout === 'function' && typeof timer.interval === 'function') {
+    return { timeout: (cb, d) => timer.timeout(cb, d), interval: (cb, d) => timer.interval(cb, d) }
+  }
+  return {
+    timeout(cb, delay) {
+      const handle = setTimeout(cb, delay)
+      handle.unref?.()
+      return () => clearTimeout(handle)
+    },
+    interval(cb, delay) {
+      const handle = setInterval(cb, delay)
+      handle.unref?.()
+      return () => clearInterval(handle)
+    },
+  }
+}
+
 function start(
   registry: import('./compat.ts').ProjectionRegistryLike,
   ctx: CtxLike & Record<string, unknown>,
@@ -335,17 +392,17 @@ function start(
   storeHolder.globalRank = readGlobalRank(dataDir())
 
   // 1) 注册 madrankUsage 单元（framework 拥有订阅与驱动，我们只交数学）。
-  // ⚠️ 必须先在插件导出里声明 inject = ['sessionProjections', 'settings']：
-  // cordis 按声明挂载服务并保证就绪；wire（客户端可见）单元在未声明时注册会静默挂起。
+  const definition = buildDefinition()
   const disposeRegister = registry.register(definition)
   log.info('madrankUsage projection registered')
 
   // 2) 变更流 → 去抖落盘（节流 2s；只做"整体替换该会话份额"这一件事）
+  const timer = timerOf(ctx)
   let pending = false
   const flushSoon = () => {
     if (pending) return
     pending = true
-    setTimeout(() => {
+    timer.timeout(() => {
       pending = false
       try {
         store.flush()
@@ -354,7 +411,7 @@ function start(
           JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))),
         )
       } catch (e) { log.warn('flush failed', e) }
-    }, 2000).unref?.()
+    }, 2000)
   }
 
   const disposeListener = registry.onChanged((session, key, value, seq) => {
@@ -447,8 +504,7 @@ function start(
       })
       .catch(() => undefined) // 同步永不影响宿主（含 onRace 回调内抛错）
   }
-  const timer = setInterval(tick, 60_000)
-  timer.unref?.()
+  const disposeTick = timer.interval(tick, 60_000)
 
   log.info('host half applied — projection on, sync tick 60s, global mirror ' + (storeHolder.globalRank ? '#' + storeHolder.globalRank.rank : 'empty'))
 
@@ -456,7 +512,7 @@ function start(
   const onDispose = (ctx as { on?: (ev: string, cb: () => void) => void }).on
   if (typeof onDispose === 'function') {
     onDispose.call(ctx, 'dispose', () => {
-      clearInterval(timer)
+      disposeTick()
       disposeListener()
       disposeRegister()
       try { store.flush() } catch { /* ignore */ }
@@ -465,14 +521,15 @@ function start(
 }
 
 /**
- * Settings section 声明（rc.2 正解，2026-09-01 定案）：
+ * Settings section 声明（官方 installSettingsSection 语义，2026-09-01 定案）：
  * 必须在 apply「顶层」消费 settings——cordis 按插件导出的 inject 数组把声明过的服务
  * 直接挂上 ctx（ctx.settings），顶层 ctx.inject 的回调也会正常触发；
  * 嵌套在其他 inject 回调里再 inject 的子 fiber 会被回收，注册静默失效。
- * 顺序：rc.8 legacy ctx.installSettingsSection → ctx.settings 直取 → ctx.inject 兜底。
- * rc.2 的 resolve() 以 schema(merged) 可调用约定消费 schema —— zod 需适配器（callable）。
+ * 语义与 @deepseek-ai/dsh-settings 的 installSettingsSection(ctx, ns, schema,
+ * entry, hooks) 同构：register(ns, schema, {base: entry}) → setSource 指向
+ * scope.get() → onChange 在 attach 即触发一次 → scope.watch 变更再触发 →
+ * dispose 时 setSource 回退 entry（服务卸载后按组合配置继续工作）。
  * resolve 输出注入全球排名——settings mirror 是宿主→浏览器的唯一合法数据缝：
- * 值在解析时从内存镜像读取，持久化文档（base/user 层）永远不含排名；
  * 排名不写回 usage 投影（HANDOFF 冻结约束），只在 describe 答案中出现。
  */
 function declareSettingsSection(ctx: CtxLike & Record<string, unknown>, log: { info(m: string): void; warn(m: string, ...rest: unknown[]): void }): void {
@@ -481,34 +538,11 @@ function declareSettingsSection(ctx: CtxLike & Record<string, unknown>, log: { i
       setSource: (get: () => Settings) => { settingsSource = get },
       onChange: () => { /* 下一个 tick 生效 */ },
     }
-    // 可调用 + toJSON 双面 schema：resolve 以 schema(merged) 消费（zod 适配），
-    // describe 以 schema.toJSON() 序列化（schemastery 图谱；裸函数会被 describe 丢弃）。
-    const callable = Object.assign(
-      (merged: unknown) => {
-        const parsed = SettingsSchema.parse(merged)
-        const rec = storeHolder.globalRank
-        const global = parsed.enabled && rec && sameOrigin(rec.endpoint, parsed.endpoint)
-          ? cardGlobalFromRecord(rec)
-          : null
-        return { ...parsed, global, deletedEpoch: readDeletedEpoch(), clearedEpoch: readClearedEpoch() }
-      },
-      {
-        toJSON: () => ({
-          uid: 3,
-          refs: {
-            1: { type: 'boolean', meta: { default: false } },
-            2: { type: 'string', meta: { default: 'https://madrank.ai/api/usage/ingest' } },
-            3: { type: 'object', meta: { default: {} }, dict: { enabled: 1, endpoint: 2, autoSync: 4 } },
-            4: { type: 'boolean', meta: { default: true } },
-          },
-        }),
-      },
-    )
     const registerWith = (provider: { register?: (ns: never, schema: never, opts: never) => unknown }): void => {
       if (typeof provider.register !== 'function') return
       const scope = provider.register(
         SETTINGS_NS as never,
-        callable as never,
+        resolveSettingsSchema as never,
         { base: { ...storeHolder.settings } } as never,
       ) as unknown as {
         get(): Settings

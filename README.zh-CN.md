@@ -26,7 +26,7 @@ Today / 7 Days / Models / Streak
 
 <p align="center">
   <img src="./docs/quick-view.png" alt="MADRank Quick View — 真实本地数据渲染" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="350">
+  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="470">
 </p>
 <p align="center"><sub>左：侧栏 Quick View（真实本地数据）· 右：Settings → MADRank 配置面板</sub></p>
 
@@ -241,6 +241,13 @@ Never let global sync block local usage
 ```
 
 对 DSH 的全部耦合集中在 `src/compat.ts`，可用 `npm run verify:dsh` 验证。
+
+集成层遵循 DeepSeek Harness 官方仓库的现行推荐（cookbook `docs/cookbook/adding-a-settings-card.md` +
+`dsh-session-projection` / `dsh-settings` 包参考）：投影定义为官方
+`{ key, stateSchema, init, apply, wire, stateVersion }` 形状（zod `ZodType` 校验）；
+设置命名空间以官方 schemastery schema 注册（`src/settings-schema.ts`，取代旧 zod
+可调用适配器 + 手写 toJSON 图）；同步 tick 与落盘去抖优先用官方 `timer` 服务；
+浏览器配置卡注册在 `settings.plugin.item`，键 = 命名空间，与宿主服务的命名空间自动配对。
 
 ---
 

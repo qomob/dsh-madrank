@@ -14,7 +14,7 @@ The core principle is simple: **local tracking runs by default, global ranking i
 
 <p align="center">
   <img src="./docs/quick-view.png" alt="MADRank Quick View — rendered from real local data" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./docs/settings.png" alt="MADRank Settings — configuration panel" width="355">
+  <img src="./docs/settings.png" alt="MADRank Settings — configuration panel" width="470">
 </p>
 <p align="center"><sub>Left: sidebar Quick View (real local data) · Right: Settings → MADRank panel</sub></p>
 
@@ -187,6 +187,8 @@ Scan the QR code to join the DSH plugin community — discuss DSH usage, plugin 
 ```
 
 DSH session logs are the source of truth; the plugin reads `sessionProjections` (never SQLite directly), keeps a rebuildable local cache, and keeps daily sync fully isolated from local statistics. All DSH coupling lives in `src/compat.ts` — verifiable via `npm run verify:dsh`.
+
+Integration follows the current official recommendations from the DeepSeek Harness repository (cookbook `docs/cookbook/adding-a-settings-card.md` and the `dsh-session-projection` / `dsh-settings` package references): the projection definition is the official `{ key, stateSchema, init, apply, wire, stateVersion }` shape (zod `ZodType`), the settings namespace registers a schemastery schema through the official register contract (`src/settings-schema.ts`), the sync tick and flush debounce use the official `timer` service when present, and the browser card registers under `settings.plugin.item` keyed by its namespace so the Plugins section pairs it with the served namespace automatically.
 
 Non-negotiables: never fork DSH · never read internal SQLite directly · never duplicate token-meter semantics · never create an independent session event pipeline · never upload same-day usage · never upload prompts/responses/tool arguments · never let global sync block local statistics.
 
