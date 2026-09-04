@@ -222,7 +222,8 @@ const CSS = [
 '.madrank-card .mk-rankrow .mk-big{font-size:24px;line-height:30px}',
 '.madrank-card .mk-rlab{font-size:11px;color:var(--dsw-alias-label-tertiary);',
 '  letter-spacing:.04em;text-transform:uppercase;margin-right:8px}',
-'.madrank-card .mk-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}',
+'.madrank-card .mk-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}',
+'.madrank-card button.mk-share{min-height:26px;padding:2px 10px;border-radius:7px;font-size:12px;flex:none}',
 '.madrank-card a.mk-race{font-size:12px;font-weight:500;line-height:20px;',
 '  color:var(--dsw-alias-state-business-primary);text-decoration:none;border-radius:4px}',
 '.madrank-card a.mk-race:hover{text-decoration:underline}',
@@ -506,6 +507,7 @@ function htmlJoined(
   lang: Lang,
   raceUrl: string,
   activeDays: number,
+  share: { url: string; text: string; card: string } | null = null,
 ): string {
   // GAP-D 信任修补：#1/1 时 TOP 100% 读作垫底 —— 唯一参与者改显 onlyParticipant
   const sole = hasRank && global.participants === 1
@@ -531,9 +533,53 @@ function htmlJoined(
     '<div class="mk-actions">',
     '<a class="mk-race" href="' + raceUrl + '" target="_blank" rel="noreferrer noopener">' +
       tr(lang, 'viewRace') + ' <span aria-hidden="true">\u2192</span></a>',
+    share !== null
+      ? '<button type="button" class="mk-share" data-madrank-share="1"' +
+        ' data-share-url="' + esc(share.url) + '"' +
+        ' data-share-card="' + esc(share.card) + '"' +
+        ' data-share-text="' + esc(share.text) + '">' +
+        tr(lang, 'shareCta') + '</button>'
+      : '',
     '</div>',
     '</div>',
   ].join('')
+}
+
+/** 分享文案(仅文字;浏览器分享前可用 /me 现取服务器真值重建 —— 修复缓存陈旧 2.54M vs 4.35M)。 */
+export function formatShareText(
+  global: { rank: number; participants?: number; race7d: number },
+  topModel: string | undefined,
+  lang: Lang,
+): string {
+  const multi = (global.participants ?? 0) > 1 && global.rank > 0
+  if (lang === 'zh') {
+    let text = '我最近 7 天真实 AI 用量:' + fmtTokens(global.race7d) + ' tokens'
+    if (topModel) text += '(主要 ' + topModel + ')'
+    return text + (multi
+      ? ' —— 全球第 ' + global.rank + '/' + global.participants + ' 名。实测,不虚报。你排第几?'
+      : ' —— 实测,不虚报。你排第几?')
+  }
+  let text = 'My real AI usage last 7 days: ' + fmtTokens(global.race7d) + ' tokens'
+  if (topModel) text += ' (mostly ' + topModel + ')'
+  return text + (multi
+    ? ' — rank #' + global.rank + '/' + global.participants + ' on MADRank. Measured, not self-reported.'
+    : ' — measured, not self-reported. Where do you rank?')
+}
+
+/** 分享链接/文案/卡片图(绝对数字优先 —— N=1 也成立;token 缺席 = null = 按钮不出现)。 */
+function buildShare(
+  raceUrl: string,
+  token: string | undefined,
+  global: { rank: number; participants?: number; race7d: number },
+  topModel: string | undefined,
+  lang: Lang,
+): { url: string; text: string; card: string } | null {
+  if (typeof token !== 'string' || !/^u[0-9a-f]{16}$/.test(token)) return null
+  let origin = 'https://madrank.ai'
+  try { origin = new URL(raceUrl).origin } catch { /* 回退官方主站 */ }
+  const url = origin + '/share/' + token + '?utm_source=dsh-plugin&utm_campaign=usage-share'
+  const card = origin + '/api/og/usage?t=' + token
+  return { url, text: formatShareText(global, topModel, lang), card }
 }
 
 function htmlSync(
@@ -547,11 +593,20 @@ function htmlSync(
   // Active Days：本机近 7 个已完成 UTC 日中有用量数据的天数（本地真实计数，
   // 与站点 /rank 的 x/7 days 辅助信号同口径；纯展示，绝不参与排名公式）。
   const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length
+  // 分享按钮:已出排名 + 持有分享令牌才出现(whoami 懒换,见宿主 index.ts)
+  const share = g != null
+    ? buildShare(raceUrl, g.shareToken, g, snap.topModels?.[0]?.model, lang)
+    : null
   return htmlJoined(
     g != null,
     g ?? { rank: 0, topPct: 0, race7d: 0, participants: 0 },
-    lang, raceUrl, activeDays,
+    lang, raceUrl, activeDays, hasShareRank(g) ? share : null,
   )
+}
+
+/** 分享出现的门槛:有排名数据(文案依赖真实数字,不用 0 充数)。 */
+function hasShareRank(g: CardGlobal | null | undefined): boolean {
+  return g != null && g.race7d > 0
 }
 
 /**
@@ -601,7 +656,7 @@ export function renderCardHtml(
     opts.style === false ? '' : '<style>' + CSS + LG_CSS + '</style>',
     '<div class="madrank-card' + (lg ? ' madrank-card-lg' : '') + '">',
     '<div class="mk-head">',
-    '<span class="mk-mark" aria-hidden="true">M</span>',
+    '<span class="mk-mark" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:12px;height:12px;display:block"><path d="M5 18 V6 L12 13 L19 6 V18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>',
     '<div class="mk-headtext">',
     '<h3>' + tr(lang, 'cardTitle') + '</h3>',
     '<div class="mk-hsub">' + tr(lang, 'cardSubtitle') + '</div>',

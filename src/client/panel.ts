@@ -16,12 +16,14 @@
 import { createElement, useEffect, useMemo, useRef, useState, Component } from 'react'
 import type { ReactElement, ReactPortal, ErrorInfo, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { renderCardHtml, scopeEnabled } from './card-html.ts'
+import { renderCardHtml, scopeEnabled, formatShareText } from './card-html.ts'
 import type { CardSnapshot, SettingsScopeLike } from './card-html.ts'
 import { composeGlobalView } from './card-data.ts'
 import { resolveLang, tr, type Lang } from './i18n.ts'
 import { dataTick, useTickSource, activeLocaleValue, resolveActiveLang, setActiveLocale } from './tick.ts'
 import { MadrankSettingsPanel } from './settings-panel.ts'
+import { openShareModal, closeShareModal } from './share-modal.ts'
+import { fetchRaceMe } from '../whoami.ts'
 
 // ── 微观共享状态：数据节拍 + 宿主 locale（实现在 tick.ts；此处转出口保持既有导入面） ──
 
@@ -152,6 +154,38 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const onJoin = (): void => { void Promise.resolve(scope.set('enabled', true)).catch(() => {}); force(x => x + 1) }
     join?.addEventListener('click', onJoin)
 
+    // 分享:打开分享海报弹层(自动卡片截图 + 可编辑文案 + 复制/下载/带图分享/X)
+    const shareBtn = rootEl.querySelector('[data-madrank-share]')
+    const onShare = (ev: Event): void => {
+      const el = ev.currentTarget as HTMLElement | null
+      const url = el?.getAttribute('data-share-url')
+      if (!url || el === null) return
+      const cardUrl = el.getAttribute('data-share-card') ?? url
+      const attrText = el.getAttribute('data-share-text') ?? ''
+      // 服务器权威刷新:分享前经 /api/usage/me 现取真值重建文案(修复缓存陈旧)
+      const token = dataTick.get().global?.shareToken
+      const openWith = (text: string): void => openShareModal({ url, cardUrl, text, lang: cardLang() })
+      if (!token) {
+        openWith(attrText)
+        return
+      }
+      void (async () => {
+        try {
+          const fresh = await fetchRaceMe(url, token, globalThis.fetch.bind(globalThis))
+          if (fresh?.me) {
+            openWith(formatShareText(
+              { rank: fresh.me.rank, participants: fresh.participants, race7d: fresh.me.total },
+              fresh.topModel ?? dataTick.get().topModels?.[0]?.model,
+              cardLang(),
+            ))
+            return
+          }
+        } catch { /* 回退本地缓存文案 */ }
+        openWith(attrText)
+      })()
+    }
+    shareBtn?.addEventListener('click', onShare)
+
     // 范围切换 + 直方柱点击进入单日（同 join/leave 的 data-attr 绑定模式）
     const snap = dataTick.get()
     const fallbackDay = (): string => {
@@ -180,8 +214,10 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     dayBars.forEach((b) => b.addEventListener('click', onDayBar))
     return () => {
       join?.removeEventListener('click', onJoin)
+      shareBtn?.removeEventListener('click', onShare)
       rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
       dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
+      closeShareModal() // 弹层挂 body,React 卸载不会带走它
     }
   }, [scope, tick, scopeTick, range, selYmd])
 

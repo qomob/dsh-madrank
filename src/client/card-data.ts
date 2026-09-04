@@ -170,6 +170,10 @@ function decodeWireGlobal(raw: unknown): CardGlobal | null {
       race7d: r['race7d'],
       participants: num(r['participants']) ? r['participants'] : undefined,
       updatedAt: num(r['updatedAt']) ? r['updatedAt'] : undefined,
+      // 分享令牌透传(2026-09-04 实锤坑:本分支曾整字段丢弃 → 分享按钮永不出现)
+      shareToken: typeof r['shareToken'] === 'string' && r['shareToken'].length > 0
+        ? r['shareToken']
+        : undefined,
     }
   }
   return cardGlobalFromRecord(parseGlobalRecord(raw))

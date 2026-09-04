@@ -15,7 +15,7 @@
 
 <p align="center">
   <img src="./docs/quick-view.png" alt="MADRank Quick View — 真实本地数据渲染" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="350">
+  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="470">
 </p>
 <p align="center"><sub>左：侧栏 Quick View（真实本地数据）· 右：Settings → MADRank 配置面板</sub></p>
 
@@ -103,6 +103,17 @@ MADRank 默认不上传任何数据。只有你主动开启 **参与全球排名
 * 只上传**已经结束的 UTC 日**的天级聚合数据
 * 同步失败不影响本地统计
 
+**4. 一键分享你的 Token Race（Share Card）**
+
+Quick View 卡片上的**分享按钮**会把你的排名变成一个可传播的社交卡片：
+
+* **专属分享链接** — `https://madrank.ai/share/<shareToken>`，任何设备、任何人都能打开查看
+* **社交卡片图** — 分享时自动生成专属海报图（服务端动态渲染：7 天 Token 数、全球排名、品牌标识与跳转二维码），在微信 / X / 小红书等平台发布时自动作为卡片配图
+* **一键复制的分享文案** — 中 / 英文双语，附排名与模型信息
+* **数字以服务器权威数据为准** — 分享前自动向服务器刷新数据（`/api/usage/me`），不会出现本地缓存陈旧导致的数字不一致
+
+分享不是上传新的隐私数据：shareToken 只是你匿名节点的公开寻址标识，榜面数据本就公开。
+
 ### 隐私设计
 
 MADRank 从架构层面把"本地统计"和"全球同步"分开。
@@ -177,7 +188,19 @@ Sidebar → Quick View = VIEW（看数据）
 Settings → MADRank   = CONFIGURE（改配置）
 ```
 
-Quick View 查看使用情况、7 日趋势、模型分布与 Rank；Settings 负责参与排名开关、自动同步、隐私、本地/远端数据删除与插件状态。
+Quick View 查看使用情况、7 日趋势、模型分布与 Rank；点击卡片上的分享按钮即可生成专属分享卡片。Settings 负责参与排名开关、自动同步、隐私、本地/远端数据删除与插件状态。
+
+## 💬 加入社群
+
+扫码加入 DSH 插件社群——交流 dsh 用法、插件开发与最佳实践：
+
+<div align="center">
+
+<img src="wechat.jpg" width="180" alt="DSH 插件微信群二维码" />
+
+</div>
+
+> 微信群二维码有时效；若扫码失效，请到 [Issues](https://github.com/qomob/dsh/issues) 留言，我们会更新二维码。
 
 ### Architecture
 
@@ -239,15 +262,17 @@ dsh-madrank/
 │   ├── store.ts              # 本地 Usage Store
 │   ├── snapshot.ts           # Card Snapshot
 │   ├── sync.ts               # 全球日级同步
+│   ├── whoami.ts             # 节点自识别 / 分享令牌
 │   ├── global-rank.ts        # Rank 数据处理
 │   ├── global-rank-file.ts   # Rank 本地持久化
 │   ├── settings-schema.ts    # Settings 契约
 │   └── client/
 │       ├── index.ts          # Browser / Client 入口
-│       ├── panel.ts          # Quick View
+│       ├── panel.ts          # Quick View（含分享动作）
 │       ├── settings-panel.ts # Settings
-│       ├── card-data.ts      # 卡片数据
-│       ├── card-html.ts      # 卡片渲染
+│       ├── card-data.ts      # 卡片数据 / wire 解码
+│       ├── card-html.ts      # 卡片渲染 / 分享文案
+│       ├── share-modal.ts    # 分享弹窗
 │       ├── i18n.ts           # 双语词典
 │       └── tick.ts           # 数据 tick / locale
 ├── tools/                    # token-meter 对账 / 兼容性验证 / client 构建
@@ -280,7 +305,14 @@ npm run preview           # 用本地真实数据渲染卡片预览页
 
 ### 当前状态
 
-本地 usage projection、7 日/30 日历史、Top Models、Streak、Quick View、Settings、本地清除、远端删除、日级聚合同步、golden cases 与真实流量对账、DSH 兼容性验证——**均已完成**。全球排名同步已接入线上 ingest（madrank.ai）。
+本地 usage projection、7 日/30 日历史、Top Models、Streak、Quick View、Settings、本地清除、远端删除、日级聚合同步、golden cases 与真实流量对账、DSH 兼容性验证——**均已完成**。全球排名已接入线上 ingest（madrank.ai）；**分享链路完整可用**：专属分享链接、服务端动态社交卡片图、双语分享文案，分享前通过服务器权威接口（`/api/usage/me`）自动刷新数字。当前版本 v0.3.6。
+
+### 相关项目
+
+MADRank 生态不止 DSH 插件：
+
+* **[madrank-node](https://www.npmjs.com/package/@qomob/madrank-node)** — 官方 CLI 采集器：从 Claude Code / Codex / OpenCode / Gemini CLI / DSH 等客户端的本地日志读取使用量，聚合后可选上传，与插件共享同一匿名身份
+* **[madrank-sync](https://github.com/qomob/madrank-sync)** — 技能市场分发包：AI agent（Claude Code / DSH 等）通过技能调用采集与上传，携带完整性自校验与防虚报红线
 
 ---
 
@@ -299,6 +331,7 @@ Most AI rankings measure model capability or preference. MADRank measures **actu
 * **Local dashboard** — Today, 7/30-day history, top models, streak, vs-7-day-average, cached tokens. Works fully offline.
 * **7-Day Token Race** — `Primary Tokens = uncached input + output`; cached tokens are tracked separately and excluded from the ranking metric to keep cross-model comparison meaningful.
 * **Opt-in global ranking** — off by default; only finished UTC days are uploaded as per-day, per-model aggregates. Sync failure never affects local statistics.
+* **One-click Share Card** — the share button on the Quick View card turns your rank into a postable card: a dedicated link at `https://madrank.ai/share/<shareToken>`, an auto-generated social card image rendered by the server (7-day token total, global rank, brand mark, QR code to madrank.ai), and a copy-ready bilingual share text. Numbers are refreshed from the server (`/api/usage/me`) right before sharing, so stale local caches never leak into your posts. The share token only addresses your anonymous node on a public leaderboard; no new private data is uploaded.
 
 ### Privacy by Design
 
@@ -342,6 +375,20 @@ Sidebar → Quick View = VIEW
 Settings → MADRank   = CONFIGURE
 ```
 
+Quick View shows your usage, 7-day trend, model mix and rank; the share button on the card generates your personal share card. Settings controls the join switch, auto-sync, privacy, local/remote deletion and plugin status.
+
+## 💬 Join the Community
+
+Scan the QR code to join the DSH plugin community — discuss DSH usage, plugin development and best practices:
+
+<div align="center">
+
+<img src="wechat.jpg" width="180" alt="DSH plugin WeChat group QR code" />
+
+</div>
+
+> The WeChat group QR code expires periodically. If it stops working, leave a message in [Issues](https://github.com/qomob/dsh/issues) and we will refresh it.
+
 ### Architecture
 
 Same as described above: DSH session logs are the source of truth; the plugin reads `sessionProjections` (never SQLite directly), keeps a rebuildable local cache, and keeps daily sync fully isolated from local statistics. All DSH coupling lives in `src/compat.ts` — verifiable via `npm run verify:dsh`.
@@ -369,7 +416,22 @@ TypeScript · React · Zod · Vitest.
 
 ### Project Status
 
-Local usage projection, 7/30-day history, top models, streak, Quick View, Settings, local clearing, remote deletion, daily aggregated sync protocol, golden-case and real-traffic reconciliation, and DSH compatibility verification are all implemented. Global ranking sync is live against the MADRank ingest service.
+Local usage projection, 7/30-day history, top models, streak, Quick View, Settings, local clearing, remote deletion, daily aggregated sync protocol, golden-case and real-traffic reconciliation, and DSH compatibility verification are all implemented. Global ranking is live against the MADRank ingest service, and the **share card is fully working**: dedicated link, server-rendered social card image and bilingual share text, with numbers auto-refreshed from the server before sharing. Current version v0.3.6.
+
+### Related Projects
+
+The MADRank ecosystem goes beyond the DSH plugin:
+
+* **[madrank-node](https://www.npmjs.com/package/@qomob/madrank-node)** — official CLI collector: reads real usage from local Claude Code / Codex / OpenCode / Gemini CLI / DSH logs, aggregates, and optionally uploads, sharing the same anonymous identity with this plugin
+* **[madrank-sync](https://github.com/qomob/madrank-sync)** — skill marketplace distribution: AI agents (Claude Code / DSH, etc.) collect and upload via a skill, with built-in integrity self-check and anti-fabrication guardrails
+
+---
+
+## 声明 / Disclaimer
+
+本站为社区驱动的非官方项目，与 DeepSeek AI 官方无隶属关系。"DeepSeek"、"dsh"、"DeepSeek Harness" 等名称与商标版权归原作者所有。
+
+This project is a community-driven, unofficial project and is not affiliated with DeepSeek AI. "DeepSeek", "dsh", "DeepSeek Harness" and related names and trademarks belong to their respective owners.
 
 ---
 

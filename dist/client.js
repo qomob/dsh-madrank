@@ -180,7 +180,8 @@ window.__ModuleLoader__.load({
 				endpoint: r["endpoint"],
 				updatedAt: r["updatedAt"],
 				windowStart: optStr(r["windowStart"]),
-				windowEnd: optStr(r["windowEnd"])
+				windowEnd: optStr(r["windowEnd"]),
+				shareToken: optStr(r["shareToken"])
 			};
 		}
 		/** 记录 → 卡片形状（离线快照与客户端 decode 共用同一映射，卡片 UI 零改动）。 */
@@ -193,7 +194,8 @@ window.__ModuleLoader__.load({
 				topPct: parsed.topPct,
 				race7d: parsed.total,
 				participants: parsed.participants,
-				updatedAt: parsed.updatedAt
+				updatedAt: parsed.updatedAt,
+				shareToken: parsed.shareToken
 			};
 		}
 		/** View race 链接：从 endpoint 派生 origin（self-host 支持）；任何异常回退官方主站。 */
@@ -314,7 +316,8 @@ window.__ModuleLoader__.load({
 				topPct: r["topPct"],
 				race7d: r["race7d"],
 				participants: num(r["participants"]) ? r["participants"] : void 0,
-				updatedAt: num(r["updatedAt"]) ? r["updatedAt"] : void 0
+				updatedAt: num(r["updatedAt"]) ? r["updatedAt"] : void 0,
+				shareToken: typeof r["shareToken"] === "string" && r["shareToken"].length > 0 ? r["shareToken"] : void 0
 			};
 			return cardGlobalFromRecord(parseGlobalRecord(raw));
 		}
@@ -376,6 +379,19 @@ window.__ModuleLoader__.load({
 				shareFine: "One anonymous daily number; a random code stands for you; chats never leave your device.",
 				joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
 				viewRace: "View race",
+				shareCta: "Share rank",
+				shareModalTitle: "Share your rank",
+				shareClose: "Close",
+				shareCardAlt: "MADRank share card",
+				shareQrHint: "Card auto-generated · QR opens the live rank",
+				shareEditHint: "Text is editable — tweak it before copying",
+				shareCopyText: "Copy text",
+				shareCopyLink: "Copy link",
+				shareDownload: "Download card",
+				shareNative: "Share with image…",
+				shareX: "Share to X",
+				shareCopied: "Copied ✓",
+				shareCopyFailed: "Copy failed",
 				leave: "Leave",
 				footerUpdated: "Updated {t} UTC",
 				sRanking: "Global ranking",
@@ -456,6 +472,19 @@ window.__ModuleLoader__.load({
 				shareFine: "每天只上报一条匿名汇总数字；身份只是随机代号，不关联任何账号；聊天内容永不上传。",
 				joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
 				viewRace: "查看排名赛",
+				shareCta: "分享排名",
+				shareModalTitle: "分享你的排名",
+				shareClose: "关闭",
+				shareCardAlt: "MADRank 分享卡",
+				shareQrHint: "卡片自动生成 · 扫码直达实时榜",
+				shareEditHint: "文案可编辑，复制前可修改",
+				shareCopyText: "复制文案",
+				shareCopyLink: "复制链接",
+				shareDownload: "下载卡片",
+				shareNative: "带图分享…",
+				shareX: "分享到 X",
+				shareCopied: "已复制 ✓",
+				shareCopyFailed: "复制失败",
 				leave: "退出",
 				footerUpdated: "更新于 {t} UTC",
 				sRanking: "全球排名",
@@ -678,7 +707,8 @@ window.__ModuleLoader__.load({
 			".madrank-card .mk-rankrow .mk-big{font-size:24px;line-height:30px}",
 			".madrank-card .mk-rlab{font-size:11px;color:var(--dsw-alias-label-tertiary);",
 			"  letter-spacing:.04em;text-transform:uppercase;margin-right:8px}",
-			".madrank-card .mk-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}",
+			".madrank-card .mk-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}",
+			".madrank-card button.mk-share{min-height:26px;padding:2px 10px;border-radius:7px;font-size:12px;flex:none}",
 			".madrank-card a.mk-race{font-size:12px;font-weight:500;line-height:20px;",
 			"  color:var(--dsw-alias-state-business-primary);text-decoration:none;border-radius:4px}",
 			".madrank-card a.mk-race:hover{text-decoration:underline}",
@@ -912,7 +942,7 @@ window.__ModuleLoader__.load({
 		* v0.2 交互规范：退出/删除是配置动作，收进 Settings \u2192 MADRank；
 		* Quick View 只负责「看」（View race 链接保留），两入口不再同质。
 		*/
-		function htmlJoined(hasRank, global, lang, raceUrl, activeDays) {
+		function htmlJoined(hasRank, global, lang, raceUrl, activeDays, share = null) {
 			const sole = hasRank && global.participants === 1;
 			const rankBlock = hasRank ? [
 				"<div class=\"mk-rankrow\">",
@@ -929,20 +959,53 @@ window.__ModuleLoader__.load({
 				"<p class=\"mk-fine\">" + tr(lang, "shareFine", { mask: ANON_MASK }) + "</p>",
 				"<div class=\"mk-actions\">",
 				"<a class=\"mk-race\" href=\"" + raceUrl + "\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
+				share !== null ? "<button type=\"button\" class=\"mk-share\" data-madrank-share=\"1\" data-share-url=\"" + esc(share.url) + "\" data-share-card=\"" + esc(share.card) + "\" data-share-text=\"" + esc(share.text) + "\">" + tr(lang, "shareCta") + "</button>" : "",
 				"</div>",
 				"</div>"
 			].join("");
+		}
+		/** 分享文案(仅文字;浏览器分享前可用 /me 现取服务器真值重建 —— 修复缓存陈旧 2.54M vs 4.35M)。 */
+		function formatShareText(global, topModel, lang) {
+			const multi = (global.participants ?? 0) > 1 && global.rank > 0;
+			if (lang === "zh") {
+				let text = "我最近 7 天真实 AI 用量:" + fmtTokens(global.race7d) + " tokens";
+				if (topModel) text += "(主要 " + topModel + ")";
+				return text + (multi ? " —— 全球第 " + global.rank + "/" + global.participants + " 名。实测,不虚报。你排第几?" : " —— 实测,不虚报。你排第几?");
+			}
+			let text = "My real AI usage last 7 days: " + fmtTokens(global.race7d) + " tokens";
+			if (topModel) text += " (mostly " + topModel + ")";
+			return text + (multi ? " — rank #" + global.rank + "/" + global.participants + " on MADRank. Measured, not self-reported." : " — measured, not self-reported. Where do you rank?");
+		}
+		/** 分享链接/文案/卡片图(绝对数字优先 —— N=1 也成立;token 缺席 = null = 按钮不出现)。 */
+		function buildShare(raceUrl, token, global, topModel, lang) {
+			if (typeof token !== "string" || !/^u[0-9a-f]{16}$/.test(token)) return null;
+			let origin = "https://madrank.ai";
+			try {
+				origin = new URL(raceUrl).origin;
+			} catch {}
+			const url = origin + "/share/" + token + "?utm_source=dsh-plugin&utm_campaign=usage-share";
+			const card = origin + "/api/og/usage?t=" + token;
+			return {
+				url,
+				text: formatShareText(global, topModel, lang),
+				card
+			};
 		}
 		function htmlSync(enabled, snap, lang, raceUrl) {
 			if (!enabled) return htmlJoinCta(lang);
 			const g = snap.global;
 			const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length;
+			const share = g != null ? buildShare(raceUrl, g.shareToken, g, snap.topModels?.[0]?.model, lang) : null;
 			return htmlJoined(g != null, g ?? {
 				rank: 0,
 				topPct: 0,
 				race7d: 0,
 				participants: 0
-			}, lang, raceUrl, activeDays);
+			}, lang, raceUrl, activeDays, hasShareRank(g) ? share : null);
+		}
+		/** 分享出现的门槛:有排名数据(文案依赖真实数字,不用 0 充数)。 */
+		function hasShareRank(g) {
+			return g != null && g.race7d > 0;
 		}
 		/**
 		* 纯渲染：卡片 HTML（React 壳与预览工具共用）。
@@ -973,7 +1036,7 @@ window.__ModuleLoader__.load({
 				opts.style === false ? "" : "<style>" + CSS + LG_CSS + "</style>",
 				"<div class=\"madrank-card" + (lg ? " madrank-card-lg" : "") + "\">",
 				"<div class=\"mk-head\">",
-				"<span class=\"mk-mark\" aria-hidden=\"true\">M</span>",
+				"<span class=\"mk-mark\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" style=\"width:12px;height:12px;display:block\"><path d=\"M5 18 V6 L12 13 L19 6 V18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span>",
 				"<div class=\"mk-headtext\">",
 				"<h3>" + tr(lang, "cardTitle") + "</h3>",
 				"<div class=\"mk-hsub\">" + tr(lang, "cardSubtitle") + "</div>",
@@ -1065,7 +1128,7 @@ window.__ModuleLoader__.load({
 		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
 		*/
 		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-		const PLUGIN_VERSION = "0.2.0";
+		const PLUGIN_VERSION = "0.3.6";
 		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 		const SITE_FALLBACK = "https://madrank.ai";
 		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
@@ -1347,7 +1410,7 @@ window.__ModuleLoader__.load({
 				"data-madrank-feedback": "clear"
 			}, tr(lang, "sClearDone")) : null)), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "sPluginName"),
-				v: "v0.2.0"
+				v: "v0.3.6"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sStatus"),
 				v: "● " + tr(lang, "sPluginEnabled")
@@ -1360,6 +1423,248 @@ window.__ModuleLoader__.load({
 				target: "_blank",
 				rel: "noreferrer noopener"
 			}, tr(lang, "sInstallGuide"), " →")))));
+		}
+		//#endregion
+		//#region src/client/share-modal.ts
+		/**
+		* share-modal.ts — 分享弹层(浏览器半侧,零依赖 vanilla DOM)。
+		*
+		* 交互形态对齐"分享海报"模式:点击分享 → 自动卡片截图(服务端 OG 图,
+		* 带二维码) + 可编辑文案 + 复制/下载/系统带图分享/X。
+		* 一次性 overlay 挂 document.body;重复打开先清场;ESC/背板/×关闭。
+		* 视觉走 --dsw-alias-* 宿主主题变量(带回退),与卡片语言一致。
+		*/
+		const ID = "madrank-share-modal";
+		const css = [
+			"#" + ID + "{position:fixed;inset:0;z-index:" + 2147483001 + ";display:flex;align-items:center;justify-content:center;padding:24px;",
+			"  background:color-mix(in srgb, #000 55%, transparent);backdrop-filter:blur(2px)}",
+			"#" + ID + " .mks-panel{width:min(420px,92vw);max-height:88vh;overflow:auto;border-radius:14px;",
+			"  border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12));",
+			"  background:var(--dsw-alias-bg-layer-2, #101013);color:var(--dsw-alias-label-primary, #fafafa);",
+			"  box-shadow:0 18px 60px rgba(0,0,0,.45);padding:16px 16px 14px;font-size:13px;line-height:1.5}",
+			"#" + ID + " .mks-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}",
+			"#" + ID + " .mks-title{font-size:14px;font-weight:700}",
+			"#" + ID + " .mks-close{min-height:26px;width:26px;padding:0 4px;border:0;border-radius:7px;background:transparent;",
+			"  color:inherit;font-size:15px;cursor:pointer}",
+			"#" + ID + " .mks-close:hover{background:var(--dsw-interactive-bg-hover, rgba(255,255,255,.08))}",
+			"#" + ID + " .mks-card{display:block;width:100%;border-radius:10px;border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.12))}",
+			"#" + ID + " .mks-hint{margin:8px 2px 4px;font-size:11px;color:var(--dsw-alias-label-tertiary, #8b8b93)}",
+			"#" + ID + " .mks-text{width:100%;box-sizing:border-box;min-height:88px;margin-top:4px;border-radius:9px;padding:8px 10px;",
+			"  border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.14));",
+			"  background:var(--dsw-alias-bg-layer-1, #0a0a0c);color:inherit;font:inherit;resize:vertical}",
+			"#" + ID + " .mks-text:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary, #6ee7b7);outline-offset:-1px}",
+			"#" + ID + " .mks-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}",
+			"#" + ID + " .mks-actions button{min-height:32px;border-radius:8px;padding:5px 10px;cursor:pointer;font:inherit;font-weight:500;",
+			"  border:1px solid var(--dsw-alias-border-l2, rgba(255,255,255,.14));",
+			"  background:var(--dsw-alias-bg-layer-1, rgba(255,255,255,.04));color:inherit}",
+			"#" + ID + " .mks-actions button:hover{background:var(--dsw-interactive-bg-hover, rgba(255,255,255,.09))}",
+			"#" + ID + " .mks-actions button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary, #6ee7b7);outline-offset:-2px}",
+			"#" + ID + " .mks-primary{grid-column:1 / -1;",
+			"  background:var(--dsw-alias-state-business-primary, #10b981)!important;",
+			"  border-color:transparent!important;color:#04110b!important;font-weight:700}",
+			"#" + ID + "[data-busy=true] .mks-actions{opacity:.6;pointer-events:none}",
+			"@media (prefers-reduced-motion: no-preference){#" + ID + " .mks-panel{animation:mks-in .14s ease-out}}",
+			"@keyframes mks-in{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}"
+		].join("\n");
+		function ensureStyles() {
+			if (document.getElementById(ID + "-style")) return;
+			const s = document.createElement("style");
+			s.id = ID + "-style";
+			s.textContent = css;
+			document.head.appendChild(s);
+		}
+		function flash(btn, lang, ok) {
+			const prev = btn.textContent;
+			btn.textContent = tr(lang, ok ? "shareCopied" : "shareCopyFailed");
+			setTimeout(() => {
+				btn.textContent = prev;
+			}, 1400);
+		}
+		async function copyText(v) {
+			try {
+				await navigator.clipboard.writeText(v);
+				return true;
+			} catch {
+				try {
+					const ta = document.createElement("textarea");
+					ta.value = v;
+					ta.style.cssText = "position:fixed;opacity:0";
+					document.body.appendChild(ta);
+					ta.select();
+					const ok = document.execCommand("copy");
+					ta.remove();
+					return ok;
+				} catch {
+					return false;
+				}
+			}
+		}
+		async function fetchCardBlob(cardUrl) {
+			try {
+				const res = await fetch(cardUrl);
+				return res.ok ? await res.blob() : null;
+			} catch {
+				return null;
+			}
+		}
+		/** 打开分享弹层(幂等:已开先关)。 */
+		function openShareModal(opts) {
+			closeShareModal();
+			ensureStyles();
+			const lang = opts.lang;
+			const root = document.createElement("div");
+			root.id = ID;
+			const panel = document.createElement("div");
+			panel.className = "mks-panel";
+			panel.setAttribute("role", "dialog");
+			panel.setAttribute("aria-modal", "true");
+			panel.setAttribute("aria-label", tr(lang, "shareModalTitle"));
+			const head = document.createElement("div");
+			head.className = "mks-head";
+			const title = document.createElement("div");
+			title.className = "mks-title";
+			title.textContent = tr(lang, "shareModalTitle");
+			const close = document.createElement("button");
+			close.className = "mks-close";
+			close.type = "button";
+			close.setAttribute("aria-label", tr(lang, "shareClose"));
+			close.textContent = "✕";
+			head.append(title, close);
+			const img = document.createElement("img");
+			img.className = "mks-card";
+			img.src = opts.cardUrl;
+			img.alt = tr(lang, "shareCardAlt");
+			const hint = document.createElement("p");
+			hint.className = "mks-hint";
+			hint.textContent = tr(lang, "shareQrHint");
+			const editHint = document.createElement("p");
+			editHint.className = "mks-hint";
+			editHint.textContent = tr(lang, "shareEditHint");
+			const ta = document.createElement("textarea");
+			ta.className = "mks-text";
+			ta.value = opts.text + "\n" + opts.url;
+			const actions = document.createElement("div");
+			actions.className = "mks-actions";
+			const mk = (label, onClick, cls) => {
+				const b = document.createElement("button");
+				b.type = "button";
+				b.textContent = label;
+				if (cls) b.className = cls;
+				b.addEventListener("click", () => {
+					onClick(b);
+				});
+				return b;
+			};
+			const btnCopyText = mk(tr(lang, "shareCopyText"), async (b) => flash(b, lang, await copyText(ta.value)));
+			const btnCopyLink = mk(tr(lang, "shareCopyLink"), async (b) => flash(b, lang, await copyText(opts.url)));
+			const btnDownload = mk(tr(lang, "shareDownload"), async (b) => {
+				root.setAttribute("data-busy", "true");
+				const blob = await fetchCardBlob(opts.cardUrl);
+				root.removeAttribute("data-busy");
+				if (blob === null) {
+					window.open(opts.cardUrl, "_blank", "noopener,noreferrer");
+					return;
+				}
+				const a = document.createElement("a");
+				a.href = URL.createObjectURL(blob);
+				a.download = "madrank-card.png";
+				a.click();
+				setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
+				flash(b, lang, true);
+			});
+			const btnX = mk(tr(lang, "shareX"), () => {
+				const intent = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(ta.value.split("\n")[0] ?? "") + "&url=" + encodeURIComponent(opts.url);
+				window.open(intent, "_blank", "noopener,noreferrer");
+			});
+			actions.append(btnCopyText, btnCopyLink, btnDownload, btnX);
+			const nav = navigator;
+			if (typeof nav.share === "function") {
+				const btnNative = mk(tr(lang, "shareNative"), async (b) => {
+					root.setAttribute("data-busy", "true");
+					let file = null;
+					try {
+						const blob = await fetchCardBlob(opts.cardUrl);
+						if (blob !== null && typeof nav.canShare === "function") {
+							const f = new File([blob], "madrank-card.png", { type: "image/png" });
+							if (nav.canShare({ files: [f] })) file = f;
+						}
+					} catch {}
+					root.removeAttribute("data-busy");
+					try {
+						await nav.share(file !== null ? {
+							files: [file],
+							text: ta.value.split("\n")[0] ?? "",
+							url: opts.url
+						} : {
+							text: ta.value,
+							url: opts.url
+						});
+					} catch {}
+					flash(b, lang, true);
+				}, "mks-primary");
+				actions.append(btnNative);
+			}
+			panel.append(head, img, hint, editHint, ta, actions);
+			root.appendChild(panel);
+			root.addEventListener("click", (ev) => {
+				if (ev.target === root) closeShareModal();
+			});
+			close.addEventListener("click", closeShareModal);
+			const onKey = (ev) => {
+				if (ev.key === "Escape") {
+					ev.stopPropagation();
+					closeShareModal();
+					document.removeEventListener("keydown", onKey, true);
+				}
+			};
+			document.addEventListener("keydown", onKey, true);
+			document.body.appendChild(root);
+		}
+		function closeShareModal() {
+			document.getElementById(ID)?.remove();
+		}
+		//#endregion
+		//#region src/whoami.ts
+		/** 兼容 ingest endpoint 或 share URL:一律取其 origin。 */
+		function meUrlFrom(endpointOrOrigin, token) {
+			try {
+				return new URL(endpointOrOrigin).origin + "/api/usage/me?t=" + token;
+			} catch {
+				return "https://madrank.ai/api/usage/me?t=" + token;
+			}
+		}
+		/**
+		* 拉取服务器权威 race(修复缓存陈旧:插件 global 曾停 2.54M 而服务器已是 4.35M)。
+		* 失败/形状不符 → null,调用方静默回退本地缓存。绝不影响同步主链路。
+		*/
+		async function fetchRaceMe(endpointOrOrigin, token, fetchImpl) {
+			try {
+				const res = await fetchImpl(meUrlFrom(endpointOrOrigin, token));
+				if (!res.ok) return null;
+				const b = await res.json();
+				if (typeof b.participants !== "number") return null;
+				const me = b.me;
+				if (me !== null) {
+					if (![
+						me.rank,
+						me.total,
+						me.topPct
+					].every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+				}
+				return {
+					participants: b.participants,
+					windowStart: typeof b.windowStart === "string" ? b.windowStart : void 0,
+					windowEnd: typeof b.windowEnd === "string" ? b.windowEnd : void 0,
+					topModel: typeof b.topModel === "string" ? b.topModel : void 0,
+					me: me === null ? null : {
+						rank: me.rank,
+						total: me.total,
+						topPct: me.topPct
+					}
+				};
+			} catch {
+				return null;
+			}
 		}
 		//#endregion
 		//#region src/client/panel.ts
@@ -1467,6 +1772,40 @@ window.__ModuleLoader__.load({
 					force((x) => x + 1);
 				};
 				join?.addEventListener("click", onJoin);
+				const shareBtn = rootEl.querySelector("[data-madrank-share]");
+				const onShare = (ev) => {
+					const el = ev.currentTarget;
+					const url = el?.getAttribute("data-share-url");
+					if (!url || el === null) return;
+					const cardUrl = el.getAttribute("data-share-card") ?? url;
+					const attrText = el.getAttribute("data-share-text") ?? "";
+					const token = dataTick.get().global?.shareToken;
+					const openWith = (text) => openShareModal({
+						url,
+						cardUrl,
+						text,
+						lang: cardLang()
+					});
+					if (!token) {
+						openWith(attrText);
+						return;
+					}
+					(async () => {
+						try {
+							const fresh = await fetchRaceMe(url, token, globalThis.fetch.bind(globalThis));
+							if (fresh?.me) {
+								openWith(formatShareText({
+									rank: fresh.me.rank,
+									participants: fresh.participants,
+									race7d: fresh.me.total
+								}, fresh.topModel ?? dataTick.get().topModels?.[0]?.model, cardLang()));
+								return;
+							}
+						} catch {}
+						openWith(attrText);
+					})();
+				};
+				shareBtn?.addEventListener("click", onShare);
 				const snap = dataTick.get();
 				const fallbackDay = () => {
 					const hist = snap.history;
@@ -1495,8 +1834,10 @@ window.__ModuleLoader__.load({
 				dayBars.forEach((b) => b.addEventListener("click", onDayBar));
 				return () => {
 					join?.removeEventListener("click", onJoin);
+					shareBtn?.removeEventListener("click", onShare);
 					rangeBtns.forEach((b) => b.removeEventListener("click", onRange));
 					dayBars.forEach((b) => b.removeEventListener("click", onDayBar));
+					closeShareModal();
 				};
 			}, [
 				scope,

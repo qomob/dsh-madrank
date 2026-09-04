@@ -27,7 +27,7 @@ import type { SettingsSectionValue } from './card-data.ts'
 import type { SettingsScopeLike } from './card-html.ts'
 
 /** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-export const PLUGIN_VERSION = '0.2.0'
+export const PLUGIN_VERSION = '0.3.6'
 
 /** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 const SITE_FALLBACK = 'https://madrank.ai'

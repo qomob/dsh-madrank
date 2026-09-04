@@ -32,6 +32,7 @@ import {
 } from './global-rank.ts'
 import type { GlobalRankRecord } from './global-rank.ts'
 import { readGlobalRank, writeGlobalRank } from './global-rank-file.ts'
+import { fetchShareToken, fetchRaceMe } from './whoami.ts'
 
 export const name = 'dsh-madrank'
 
@@ -77,6 +78,55 @@ function dataDir(): string {
 
 function installIdPath(): string {
   return join(dataDir(), 'installation-id')
+}
+
+// ── 分享令牌懒换(whoami;节流:每进程每小时至多尝试一次) ──────────
+let whoamiInFlight = false
+let whoamiLastAttempt = 0
+async function ensureShareToken(endpoint: string): Promise<void> {
+  const rec = storeHolder.globalRank
+  if (!rec || rec.shareToken) return
+  if (whoamiInFlight || Date.now() - whoamiLastAttempt < 3_600_000) return
+  whoamiInFlight = true
+  whoamiLastAttempt = Date.now()
+  try {
+    const token = await fetchShareToken(endpoint, getAnonId(), globalThis.fetch.bind(globalThis))
+    if (token && storeHolder.globalRank) {
+      const next: GlobalRankRecord = { ...storeHolder.globalRank, shareToken: token }
+      storeHolder.globalRank = next
+      try { writeGlobalRank(dataDir(), next) } catch { /* 展示数据,尽力而为 */ }
+      touchSettingsDocument()
+    }
+  } finally {
+    whoamiInFlight = false
+  }
+}
+
+// 服务器权威 race 刷新(15 分钟节流):修复缓存陈旧 —— 无新日可传时 global 不更新,
+// 窗口滚动后卡在旧 total(2.54M vs 4.35M 事件)。失败静默,不影响同步主链路。
+let lastRaceRefresh = 0
+async function refreshRaceThrottled(endpoint: string): Promise<void> {
+  const rec = storeHolder.globalRank
+  if (!rec?.shareToken) return
+  if (Date.now() - lastRaceRefresh < 15 * 60_000) return
+  lastRaceRefresh = Date.now()
+  try {
+    const v = await fetchRaceMe(endpoint, rec.shareToken, globalThis.fetch.bind(globalThis))
+    if (!v?.me) return
+    const next: GlobalRankRecord = {
+      ...rec,
+      rank: v.me.rank, total: v.me.total, topPct: v.me.topPct,
+      participants: v.participants,
+      windowStart: v.windowStart, windowEnd: v.windowEnd,
+      updatedAt: Date.now(),
+    }
+    storeHolder.globalRank = next
+    const unchanged = next.rank === rec.rank && next.total === rec.total && next.participants === rec.participants
+    if (!unchanged) {
+      try { writeGlobalRank(dataDir(), next) } catch { /* 尽力而为 */ }
+      touchSettingsDocument()
+    }
+  } catch { /* 静默 */ }
 }
 
 /** 删除完成时间戳（settings mirror 注入 deletedEpoch 用；持久化跨进程）。 */
@@ -365,12 +415,19 @@ function start(
     // 同步轮门控（v0.2）：参与排名（enabled）+ 自动同步（autoSync）双开关，
     // 缺一不发 —— 设置面板的「自动同步」不是装饰，是真门。
     if (!s.enabled || s.autoSync === false || !s.endpoint || !storeHolder.store) return
+    // 分享令牌懒换(每进程每小时至多一次;失败静默,绝不影响同步)
+    void ensureShareToken(s.endpoint)
+    // 服务器权威 race 刷新(15 分钟节流;缓存陈旧修复)
+    void refreshRaceThrottled(s.endpoint)
     void syncPendingDays(store, s, getAnonId, globalThis.fetch.bind(globalThis), (race) => {
       // ingest 响应携带按本机 anonId 重算的 7 日名次：持久化 + 内存镜像 +
       // 触碰设置文档 → Joined 卡片实时点亮（P0-1 / P0-2 的最后一环）。
       const rec = recordFromRace(race, s.endpoint, Date.now())
       if (!rec) return
       const prev = storeHolder.globalRank
+      // 保留已换得的分享令牌:recordFromRace 重建的 record 不带它,
+      // 不保留会导致名次一变按钮就消失(whoami 节流 1/h 内不自愈)
+      if (prev?.shareToken) rec.shareToken = prev.shareToken
       if (prev !== null
         && prev.rank === rec.rank && prev.total === rec.total
         && prev.participants === rec.participants && prev.endpoint === rec.endpoint) {
@@ -383,6 +440,7 @@ function start(
         log.warn('global-rank write failed — keep in-memory mirror', e)
       }
       touchSettingsDocument()
+      void ensureShareToken(s.endpoint)
     })
       .then((outcomes) => {
         if (outcomes.length > 0) store.flush()

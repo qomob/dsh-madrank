@@ -34,6 +34,11 @@ export interface GlobalRankRecord {
   windowEnd?: string
   endpoint: string
   updatedAt: number
+  /**
+   * 分享令牌（whoami 换取的服务端加盐哈希节点 id,u+16hex)。
+   * 只寻址本节点在公开榜上的数据 —— 不是凭证;缺省 = 分享按钮不出现。
+   */
+  shareToken?: string
 }
 
 /** 卡片消费形状（card-html CardSnapshot.global；race7d = 服务端 7 日总量）。 */
@@ -43,6 +48,8 @@ export interface CardGlobal {
   race7d: number
   participants?: number
   updatedAt?: number
+  /** 分享令牌(u+16hex;来自 GlobalRankRecord,经 settings mirror 注入)。 */
+  shareToken?: string
 }
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -101,6 +108,7 @@ export function parseGlobalRecord(raw: unknown): GlobalRankRecord | null {
     updatedAt: r['updatedAt'],
     windowStart: optStr(r['windowStart']),
     windowEnd: optStr(r['windowEnd']),
+    shareToken: optStr(r['shareToken']),
   }
 }
 
@@ -115,6 +123,7 @@ export function cardGlobalFromRecord(rec: GlobalRankRecord | null | undefined): 
     race7d: parsed.total,
     participants: parsed.participants,
     updatedAt: parsed.updatedAt,
+    shareToken: parsed.shareToken,
   }
 }
 
