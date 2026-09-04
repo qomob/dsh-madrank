@@ -1,144 +1,94 @@
 # MADRank for DSH
 
 > **Track your AI usage. See how you rank.**
-> 把 AI 使用量变成你的数据，也把它变成一场公开的 Token Race。
 
 [![npm](https://img.shields.io/npm/v/@qomob/dsh-madrank)](https://www.npmjs.com/package/@qomob/dsh-madrank)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![MADRank](https://img.shields.io/badge/MADRank-madrank.ai-black)](https://madrank.ai)
 
-**DSH / DeepSeek Harness 插件**，用于统计你的 AI 使用量，并在你主动选择加入后，参与 MADRank 的匿名全球 **7-Day Token Race**。
+**English** | [简体中文](./README.zh-CN.md)
 
-它的核心原则很简单：
+MADRank is an AI Usage & Ranking plugin for [DeepSeek Harness (DSH)](https://github.com/qomob/dsh). It turns your DSH activity into a private local dashboard — Today / 7-Day history / Top models / Streak — and, if you explicitly opt in, an anonymous global **7-Day Token Race** based on real usage.
 
-**本地统计默认运行，全球排名明确 opt-in，上传只发生在已结束的 UTC 日，而且只上传聚合后的 usage 数据。**
+The core principle is simple: **local tracking runs by default, global ranking is an explicit opt-in, uploads only happen for finished UTC days, and only aggregated usage is ever sent.**
 
 <p align="center">
-  <img src="./docs/quick-view.png" alt="MADRank Quick View — 真实本地数据渲染" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="470">
+  <img src="./docs/quick-view.png" alt="MADRank Quick View — rendered from real local data" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="./docs/settings.png" alt="MADRank Settings — configuration panel" width="470">
 </p>
-<p align="center"><sub>左：侧栏 Quick View（真实本地数据）· 右：Settings → MADRank 配置面板</sub></p>
+<p align="center"><sub>Left: sidebar Quick View (real local data) · Right: Settings → MADRank panel</sub></p>
 
 ---
 
-## 🇨🇳 中文
+## Features
 
-### MADRank 是什么？
+**1. Local AI Usage Dashboard** (works fully offline, no ranking required)
 
-MADRank 是一个运行在 **DeepSeek Harness (DSH)** 中的 AI Usage & Ranking 插件。
+* **Today** — today's usage
+* **7-Day / 30-Day History** — recent 7-day / 30-day trends
+* **Top Models** — your most-used models
+* **Streak** — consecutive active days
+* **vs 7-Day Average** — compare against your own 7-day baseline
+* **RANK** — global rank status
+* **Cached Tokens** — tracked separately from the ranking metric
 
-它把你在 DSH 中产生的 AI 使用数据转化为三个层次：
+Data comes from the DSH session projection feed — the plugin never reads DSH's internal database directly.
 
-```text
-你的 DSH 会话
-      ↓
-本地 Usage 数据
-      ↓
-Today / 7 Days / Models / Streak
-      ↓
-可选加入 MADRank
-      ↓
-7-Day Token Race
-```
+**2. 7-Day Token Race** (the core competitive metric)
 
-你可以先把它当成一个**私人 AI 使用仪表盘**。
-
-也可以选择加入全球排名，看看：
-
-> **过去 7 个 UTC 日，你究竟用了多少 AI Token，以及你排在全球什么位置。**
-
-MADRank 的排名指标不是"模型有多强"，而是：
-
-> **真实 AI 使用量。**
-
-### 为什么是 Token Ranking？
-
-今天大家讨论 AI 排名，通常讨论的是 benchmark、模型能力、SWE-Bench、Arena 等。
-
-但还有一个非常直接的问题：
-
-> **谁真的在使用 AI？用了多少？**
-
-MADRank 关注的是 Usage Rank：
-
-* 谁每天真的在使用 AI
-* 谁持续使用 AI
-* 谁在过去 7 天产生了最多的有效 Token 使用量
-
-因此，MADRank 更接近：
-
-> **AI Usage Layer，而不是 Model Benchmark Layer。**
-
-### 核心功能
-
-**1. 本地 AI Usage Dashboard**（无需加入全球排名）
-
-* **Today** — 今日使用量
-* **7-Day / 30-Day History** — 近 7 天 / 30 天历史
-* **Top Models** — 使用最多的模型
-* **Streak** — 连续使用天数
-* **vs 7-Day Average** — 与过去 7 日平均值对比
-* **RANK** — 全球排名状态
-* **Cached Tokens** — 缓存 Token 单独统计
-
-这些数据来自 DSH 的 session projection feed，而不是读取 DSH 内部数据库。
-
-**2. 7-Day Token Race**（核心竞争指标）
-
-> **7-Day Uncached Tokens**，即最近 **7 个 UTC 日**的 Primary Tokens 总量。
+> **7-Day Uncached Tokens** — total primary tokens over the last **7 UTC days**.
 
 ```text
 Primary Tokens = uncached input tokens + output tokens
 Cached Tokens  = cache read + cache write
 ```
 
-缓存不会混入主要排名数字，以避免不同模型、不同厂商缓存机制造成的跨模型比较失真。
+Cached tokens are excluded from the ranking metric so cross-model, cross-provider cache differences never distort the comparison.
 
-**3. 全球排名是可选的**
+**3. Opt-in Global Ranking**
 
-MADRank 默认不上传任何数据。只有你主动开启 **参与全球排名** 之后，插件才会进入同步流程：
+Nothing is uploaded by default. Sync only starts after you explicitly enable **join the global ranking**:
 
-* 默认关闭，用户主动 opt-in
-* 不上传实时请求，不上传当天数据
-* 只上传**已经结束的 UTC 日**的天级聚合数据
-* 同步失败不影响本地统计
+* Off by default, explicit opt-in
+* No real-time requests, no same-day data ever
+* Only **finished UTC days** are uploaded, as per-day per-model aggregates
+* Sync failure never affects local statistics
 
-**4. 一键分享你的 Token Race（Share Card）**
+**4. One-click Share Card**
 
-Quick View 卡片上的**分享按钮**会把你的排名变成一个可传播的社交卡片：
+The **share button** on the Quick View card turns your rank into a postable card:
 
-* **专属分享链接** — `https://madrank.ai/share/<shareToken>`，任何设备、任何人都能打开查看
-* **社交卡片图** — 分享时自动生成专属海报图（服务端动态渲染：7 天 Token 数、全球排名、品牌标识与跳转二维码），在微信 / X / 小红书等平台发布时自动作为卡片配图
-* **一键复制的分享文案** — 中 / 英文双语，附排名与模型信息
-* **数字以服务器权威数据为准** — 分享前自动向服务器刷新数据（`/api/usage/me`），不会出现本地缓存陈旧导致的数字不一致
+* **Dedicated share link** — `https://madrank.ai/share/<shareToken>`, viewable from any device by anyone
+* **Auto-generated social card image** — rendered server-side (7-day token total, global rank, brand mark, QR code to madrank.ai); social platforms pick it up automatically as the card preview
+* **Copy-ready bilingual share text** — with rank and model info
+* **Server-authoritative numbers** — refreshed from the server (`/api/usage/me`) right before sharing, so stale local caches never leak stale numbers into your posts
 
-分享不是上传新的隐私数据：shareToken 只是你匿名节点的公开寻址标识，榜面数据本就公开。
+Sharing uploads no new private data: the share token only addresses your anonymous node on a public leaderboard, and the leaderboard itself is public.
 
-### 隐私设计
+---
 
-MADRank 从架构层面把"本地统计"和"全球同步"分开。
+## Privacy by Design
+
+Local tracking and global sync are separated at the architecture level.
 
 ```text
-默认状态（离线可用）：
+Default (offline-capable):
 DSH → Local Projection → Local Usage Store → Local Dashboard
 
-加入全球排名后：
+After joining the race:
 Local Usage Store → Finished UTC Day → Aggregated Usage → MADRank Ingest
 ```
 
-**不会上传：** Prompt、Response、Tool Arguments、单次请求内容、当天实时 usage。
-**上传的：** 按日期、按模型聚合后的 usage。
+**Never uploaded:** prompts, responses, tool arguments, individual request payloads, same-day usage.
+**Uploaded:** daily, per-model aggregated usage only.
 
-### 数据删除
+Deletion is intentionally split: **Clear Local Data** removes this machine's statistics; **Delete Remote Data** requests removal of the remote rows tied to your anonymous installation identity.
 
-* **清除本地数据** — 只删除本机 MADRank usage 数据，不影响远端。
-* **删除已同步数据** — 请求删除当前安装身份对应的远端 usage 数据。
+---
 
-本地删除和远端删除是两个独立操作。
+## Usage Accuracy
 
-### 数据为什么可信？
-
-MADRank 不自己创造另一套 Token 统计逻辑。它使用 DSH 的 **session projection** 作为数据来源，并通过独立的 reference token-meter 对账。针对真实 DSH session 的回放验证：
+MADRank does not invent a second token-accounting logic. It uses DSH's **session projection** as the data source and reconciles aggregation against an independent reference token-meter. A real-session reconciliation run:
 
 ```text
 input        745,120  =  745,120
@@ -148,29 +98,29 @@ cache read 26,352,384 = 26,352,384
 MATCH ✓
 ```
 
-覆盖 streaming replacement、waterfall tool traffic、跨午夜分桶、同 `(turn, step)` 替换语义。目标是：
+The suite covers streaming replacement, waterfall tool traffic, cross-midnight bucketing and `(turn, step)` replacement semantics. Goal: stay consistent with DSH's own token meter.
 
-> **和 DSH 的 Token Meter 保持一致。**
+---
 
-### 安装
+## Installation
 
-**方式一：npm（推荐）**
+**Option 1: npm (recommended)**
 
 ```bash
 cd ~/.dsh/profiles/web
 pnpm add @qomob/dsh-madrank
 ```
 
-在 `~/.dsh/profiles/web/cordis.patch.yml` 加入：
+Add to `~/.dsh/profiles/web/cordis.patch.yml`:
 
 ```yaml
 - insert:
     - name: '@qomob/dsh-madrank'
 ```
 
-重启 DSH。启动日志出现 `settings ns registered: madrank-usage`、侧栏出现 MADRank 入口即安装成功。
+Restart DSH. Installation succeeded when the log shows `settings ns registered: madrank-usage` and the MADRank entry appears in the sidebar.
 
-**方式二：GitHub 本地开发**
+**Option 2: local development from GitHub**
 
 ```bash
 git clone https://github.com/qomob/dsh-madrank.git
@@ -179,30 +129,36 @@ cd ~/.dsh/profiles/web
 pnpm add 'link:/absolute/path/to/dsh-madrank'
 ```
 
-注意使用 `link:` 而不是 `file:`（`file:` 会复制实体、不再随源码同步）。之后同样注册并重启 DSH。
+Use `link:` not `file:` (`file:` copies the package and breaks source sync). Then register and restart DSH as above.
 
-### 使用方式
+---
+
+## UI Model
 
 ```text
-Sidebar → Quick View = VIEW（看数据）
-Settings → MADRank   = CONFIGURE（改配置）
+Sidebar → Quick View = VIEW
+Settings → MADRank   = CONFIGURE
 ```
 
-Quick View 查看使用情况、7 日趋势、模型分布与 Rank；点击卡片上的分享按钮即可生成专属分享卡片。Settings 负责参与排名开关、自动同步、隐私、本地/远端数据删除与插件状态。
+Quick View shows your usage, 7-day trend, model mix and rank; the share button on the card generates your personal share card. Settings controls the join switch, auto-sync, privacy, local/remote deletion and plugin status.
 
-## 💬 加入社群
+---
 
-扫码加入 DSH 插件社群——交流 dsh 用法、插件开发与最佳实践：
+## 💬 Join the Community
+
+Scan the QR code to join the DSH plugin community — discuss DSH usage, plugin development and best practices:
 
 <div align="center">
 
-<img src="wechat.jpg" width="180" alt="DSH 插件微信群二维码" />
+<img src="wechat.jpg" width="180" alt="DSH plugin WeChat group QR code" />
 
 </div>
 
-> 微信群二维码有时效；若扫码失效，请到 [Issues](https://github.com/qomob/dsh/issues) 留言，我们会更新二维码。
+> The WeChat group QR code expires periodically. If it stops working, leave a message in [Issues](https://github.com/qomob/dsh/issues) and we will refresh it.
 
-### Architecture
+---
+
+## Architecture
 
 ```text
 ┌──────────────────────┐
@@ -230,176 +186,19 @@ Quick View 查看使用情况、7 日趋势、模型分布与 Rank；点击卡�
            7-Day Token Race
 ```
 
-* **Framework owns events** — 不创建第二套 session/event subscription，插件只负责 Projection + Fold + Persistence + Sync
-* **Session log is the source of truth** — 本地 `usage-store.json` 只是可删除、可重建的 projection cache
-* **No direct SQLite access** — 数据采集只通过 `sessionProjections`
-* **Sync is isolated** — 同步失败 ≠ 本地统计失败
-
-核心兼容原则：
-
-```text
-Never fork DSH
-Never read internal SQLite directly
-Never duplicate token-meter semantics
-Never subscribe to session events independently
-Never upload same-day usage
-Never upload prompts / responses / tool arguments
-Never let global sync block local usage
-```
-
-对 DSH 的全部耦合集中在 `src/compat.ts`，可用 `npm run verify:dsh` 验证。
-
-### 项目结构
-
-```text
-dsh-madrank/
-├── src/
-│   ├── index.ts              # Host 侧插件入口
-│   ├── compat.ts             # DSH 唯一兼容层
-│   ├── fold.ts               # Usage Projection / 状态折叠
-│   ├── caliber.ts            # Token 数据口径
-│   ├── stats.ts              # Dashboard 聚合
-│   ├── store.ts              # 本地 Usage Store
-│   ├── snapshot.ts           # Card Snapshot
-│   ├── sync.ts               # 全球日级同步
-│   ├── whoami.ts             # 节点自识别 / 分享令牌
-│   ├── global-rank.ts        # Rank 数据处理
-│   ├── global-rank-file.ts   # Rank 本地持久化
-│   ├── settings-schema.ts    # Settings 契约
-│   └── client/
-│       ├── index.ts          # Browser / Client 入口
-│       ├── panel.ts          # Quick View（含分享动作）
-│       ├── settings-panel.ts # Settings
-│       ├── card-data.ts      # 卡片数据 / wire 解码
-│       ├── card-html.ts      # 卡片渲染 / 分享文案
-│       ├── share-modal.ts    # 分享弹窗
-│       ├── i18n.ts           # 双语词典
-│       └── tick.ts           # 数据 tick / locale
-├── tools/                    # token-meter 对账 / 兼容性验证 / client 构建
-├── tests/                    # Vitest + golden fixtures
-├── dist/                     # 构建产物（browser half）
-├── docs/                     # README 截图
-├── LICENSE
-├── package.json
-└── README.md
-```
-
-### 数据与存储
-
-默认数据目录 `~/.madrank/usage/`，可用 `MADRANK_USAGE_DIR` 覆盖。典型文件：`installation-id`、`usage-store.json`、`card-snapshot.json`、`global-rank.json`、`deleted-epoch`、`cleared-epoch`。匿名安装 ID 是本机生成的 UUID，换机器默认视为新身份。
-
-### 开发
-
-```bash
-npm install
-npm test                  # Vitest
-npm run typecheck         # tsc --noEmit
-npm run build:client      # 构建 browser half（dist/client.js）
-npm run reconcile -- <events.jsonl>   # 真实事件流对账
-npm run reconcile:fixture # fixture 对账
-npm run verify:dsh        # DSH 兼容性验证
-npm run preview           # 用本地真实数据渲染卡片预览页
-```
-
-技术栈：TypeScript、React、Zod、Vitest。
-
-### 当前状态
-
-本地 usage projection、7 日/30 日历史、Top Models、Streak、Quick View、Settings、本地清除、远端删除、日级聚合同步、golden cases 与真实流量对账、DSH 兼容性验证——**均已完成**。全球排名已接入线上 ingest（madrank.ai）；**分享链路完整可用**：专属分享链接、服务端动态社交卡片图、双语分享文案，分享前通过服务器权威接口（`/api/usage/me`）自动刷新数字。当前版本 v0.3.6。
-
-### 相关项目
-
-MADRank 生态不止 DSH 插件：
-
-* **[madrank-node](https://www.npmjs.com/package/@qomob/madrank-node)** — 官方 CLI 采集器：从 Claude Code / Codex / OpenCode / Gemini CLI / DSH 等客户端的本地日志读取使用量，聚合后可选上传，与插件共享同一匿名身份
-* **[madrank-sync](https://github.com/qomob/madrank-sync)** — 技能市场分发包：AI agent（Claude Code / DSH 等）通过技能调用采集与上传，携带完整性自校验与防虚报红线
-
----
-
-## 🇺🇸 English
-
-**MADRank** is an AI Usage & Ranking plugin for DeepSeek Harness (DSH). It turns your DSH activity into a private local dashboard — Today / 7-Day history / Top models / Streak — and, if you explicitly opt in, an anonymous global **7-Day Token Race** based on real usage.
-
-> **Track what you actually use, not what a benchmark says you should use.**
-
-### Why Usage Ranking?
-
-Most AI rankings measure model capability or preference. MADRank measures **actual AI usage**: who is using AI, how much, and who accumulated the most meaningful token usage over the last 7 UTC days. It is designed as an **AI Usage Layer**, not a model benchmark.
-
-### Features
-
-* **Local dashboard** — Today, 7/30-day history, top models, streak, vs-7-day-average, cached tokens. Works fully offline.
-* **7-Day Token Race** — `Primary Tokens = uncached input + output`; cached tokens are tracked separately and excluded from the ranking metric to keep cross-model comparison meaningful.
-* **Opt-in global ranking** — off by default; only finished UTC days are uploaded as per-day, per-model aggregates. Sync failure never affects local statistics.
-* **One-click Share Card** — the share button on the Quick View card turns your rank into a postable card: a dedicated link at `https://madrank.ai/share/<shareToken>`, an auto-generated social card image rendered by the server (7-day token total, global rank, brand mark, QR code to madrank.ai), and a copy-ready bilingual share text. Numbers are refreshed from the server (`/api/usage/me`) right before sharing, so stale local caches never leak into your posts. The share token only addresses your anonymous node on a public leaderboard; no new private data is uploaded.
-
-### Privacy by Design
-
-MADRank never uploads prompts, responses, tool arguments, individual request payloads, or same-day usage. Only aggregated daily usage is transmitted — and only after you join the race.
-
-Deletion is intentionally split: **Clear Local Data** removes this machine's statistics; **Delete Remote Data** requests removal of the remote usage data tied to your anonymous installation identity.
-
-### Usage Accuracy
-
-MADRank uses DSH session projections and validates aggregation against an independent reference token-meter. A real-session reconciliation run:
-
-```text
-input        745,120  =  745,120
-output       186,324  =  186,324
-cache read 26,352,384 = 26,352,384
-
-MATCH ✓
-```
-
-The suite covers streaming replacement, waterfall tool traffic, cross-midnight bucketing, and replacement semantics.
-
-### Installation
-
-```bash
-# npm
-cd ~/.dsh/profiles/web
-pnpm add @qomob/dsh-madrank
-
-# register in ~/.dsh/profiles/web/cordis.patch.yml
-#   - insert:
-#       - name: '@qomob/dsh-madrank'
-# then restart DSH
-```
-
-For local development, clone this repo, run `npm install && npm run build:client`, and link it with `pnpm add 'link:/absolute/path/to/dsh-madrank'` (use `link:`, not `file:`, so sources stay in sync).
-
-### UI Model
-
-```text
-Sidebar → Quick View = VIEW
-Settings → MADRank   = CONFIGURE
-```
-
-Quick View shows your usage, 7-day trend, model mix and rank; the share button on the card generates your personal share card. Settings controls the join switch, auto-sync, privacy, local/remote deletion and plugin status.
-
-## 💬 Join the Community
-
-Scan the QR code to join the DSH plugin community — discuss DSH usage, plugin development and best practices:
-
-<div align="center">
-
-<img src="wechat.jpg" width="180" alt="DSH plugin WeChat group QR code" />
-
-</div>
-
-> The WeChat group QR code expires periodically. If it stops working, leave a message in [Issues](https://github.com/qomob/dsh/issues) and we will refresh it.
-
-### Architecture
-
-Same as described above: DSH session logs are the source of truth; the plugin reads `sessionProjections` (never SQLite directly), keeps a rebuildable local cache, and keeps daily sync fully isolated from local statistics. All DSH coupling lives in `src/compat.ts` — verifiable via `npm run verify:dsh`.
+DSH session logs are the source of truth; the plugin reads `sessionProjections` (never SQLite directly), keeps a rebuildable local cache, and keeps daily sync fully isolated from local statistics. All DSH coupling lives in `src/compat.ts` — verifiable via `npm run verify:dsh`.
 
 Non-negotiables: never fork DSH · never read internal SQLite directly · never duplicate token-meter semantics · never create an independent session event pipeline · never upload same-day usage · never upload prompts/responses/tool arguments · never let global sync block local statistics.
 
-### Storage
+---
+
+## Storage
 
 Default directory `~/.madrank/usage/` (override with `MADRANK_USAGE_DIR`): `installation-id`, `usage-store.json`, `card-snapshot.json`, `global-rank.json`, `deleted-epoch`, `cleared-epoch`. The anonymous identity is a locally generated installation UUID; a new machine means a new identity by default.
 
-### Development
+---
+
+## Development
 
 ```bash
 npm install
@@ -414,11 +213,15 @@ npm run preview
 
 TypeScript · React · Zod · Vitest.
 
-### Project Status
+---
 
-Local usage projection, 7/30-day history, top models, streak, Quick View, Settings, local clearing, remote deletion, daily aggregated sync protocol, golden-case and real-traffic reconciliation, and DSH compatibility verification are all implemented. Global ranking is live against the MADRank ingest service, and the **share card is fully working**: dedicated link, server-rendered social card image and bilingual share text, with numbers auto-refreshed from the server before sharing. Current version v0.3.6.
+## Project Status
 
-### Related Projects
+Local usage projection, 7/30-day history, top models, streak, Quick View, Settings, local clearing, remote deletion, daily aggregated sync protocol, golden-case and real-traffic reconciliation and DSH compatibility verification are all implemented. Global ranking is live against the MADRank ingest service, and the **share card is fully working**: dedicated link, server-rendered social card image and bilingual share text, with numbers auto-refreshed from the server before sharing. Current version: v0.3.6.
+
+---
+
+## Related Projects
 
 The MADRank ecosystem goes beyond the DSH plugin:
 
@@ -427,27 +230,15 @@ The MADRank ecosystem goes beyond the DSH plugin:
 
 ---
 
-## 声明 / Disclaimer
-
-本站为社区驱动的非官方项目，与 DeepSeek AI 官方无隶属关系。"DeepSeek"、"dsh"、"DeepSeek Harness" 等名称与商标版权归原作者所有。
+## Disclaimer
 
 This project is a community-driven, unofficial project and is not affiliated with DeepSeek AI. "DeepSeek", "dsh", "DeepSeek Harness" and related names and trademarks belong to their respective owners.
 
 ---
-
-# MADRank
-
-MADRank 不试图告诉你"哪个 AI 最强"——它试图回答：
-
-> **"你究竟用了多少 AI？"**
-> **"放到全球用户里，你排在哪里？"**
-
-```text
-AI Capability  +  AI Usage  +  AI Competition  →  MADRank
-```
 
 🌐 https://madrank.ai
 
 ## License
 
 [MIT](./LICENSE) © 2026 qomob / MADRank
+
