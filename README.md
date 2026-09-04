@@ -14,7 +14,7 @@ The core principle is simple: **local tracking runs by default, global ranking i
 
 <p align="center">
   <img src="./docs/quick-view.png" alt="MADRank Quick View — rendered from real local data" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./docs/settings.png" alt="MADRank Settings — configuration panel" width="470">
+  <img src="./docs/settings.png" alt="MADRank Settings — configuration panel" width="355">
 </p>
 <p align="center"><sub>Left: sidebar Quick View (real local data) · Right: Settings → MADRank panel</sub></p>
 
