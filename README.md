@@ -15,7 +15,7 @@
 
 <p align="center">
   <img src="./docs/quick-view.png" alt="MADRank Quick View — 真实本地数据渲染" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="470">
+  <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="300">
 </p>
 <p align="center"><sub>左：侧栏 Quick View（真实本地数据）· 右：Settings → MADRank 配置面板</sub></p>
 
