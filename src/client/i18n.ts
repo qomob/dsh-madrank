@@ -52,6 +52,16 @@ const en = {
   race7dLabel: 'Ranked · 7-day uncached',
   race7dShort: '7-day uncached {v}',
   activeDays7: '{n}/7 days',
+  /* 来源标注：今日 = 本机实时投影；7 日 = 服务器上次同步镜像 */
+  heroSourceLocal: 'LOCAL · LIVE',
+  rankServerAgo: 'SERVER · {t}',
+  /* 守卫注脚：仅当 今日 > 服务器 7 日 时显示，解释窗口/口径差异 */
+  guardWindowNote: 'The 7-day rank window covers finished UTC days only — today joins after the next sync.',
+  /* 相对时间（ago 字典） */
+  agoJustNow: 'just now',
+  agoMin: '{n}m ago',
+  agoHour: '{n}h ago',
+  agoDay: '{n}d ago',
   deleteBtn: 'Delete synced data',
   deleteConfirmBtn: 'Confirm delete',
   deletePending: 'Deleting…',
@@ -150,6 +160,16 @@ const zh: Record<DictKey, string> = {
   race7dLabel: '计入全球排名 · 7 日未缓存',
   race7dShort: '7 日未缓存 {v}',
   activeDays7: '{n}/7 天',
+  /* 来源标注：今日 = 本机实时投影；7 日 = 服务器上次同步镜像 */
+  heroSourceLocal: '本机 · 实时',
+  rankServerAgo: '服务器 · {t}',
+  /* 守卫注脚：仅当 今日 > 服务器 7 日 时显示，解释窗口/口径差异 */
+  guardWindowNote: '榜单 7 日窗口只统计已结束的 UTC 日 —— 今天的用量在下次同步后并入。',
+  /* 相对时间（ago 字典） */
+  agoJustNow: '刚刚',
+  agoMin: '{n} 分钟前',
+  agoHour: '{n} 小时前',
+  agoDay: '{n} 天前',
   deleteBtn: '删除已同步数据',
   deleteConfirmBtn: '确认删除',
   deletePending: '删除中…',
@@ -237,4 +257,15 @@ export function fmtActive(seconds: number, lang: Lang): string {
   const m = Math.round((seconds % 3600) / 60)
   if (lang === 'zh') return h > 0 ? (h + '小时' + String(m).padStart(2, '0') + '分') : (m + '分钟')
   return h > 0 ? (h + 'h ' + String(m).padStart(2, '0') + 'm') : (m + 'm')
+}
+
+/** 相对时间（服务器同步新鲜度标注）：en “12m ago”；zh “12 分钟前”。 */
+export function fmtAgo(tsMs: number, nowMs = Date.now(), lang: Lang): string {
+  const diff = Math.max(0, Math.floor((nowMs - tsMs) / 1000))
+  if (diff < 60) return tr(lang, 'agoJustNow')
+  const m = Math.floor(diff / 60)
+  if (m < 60) return tr(lang, 'agoMin', { n: m })
+  const h = Math.floor(m / 60)
+  if (h < 24) return tr(lang, 'agoHour', { n: h })
+  return tr(lang, 'agoDay', { n: Math.floor(h / 24) })
 }

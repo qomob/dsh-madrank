@@ -372,6 +372,13 @@ window.__ModuleLoader__.load({
 				race7dLabel: "Ranked · 7-day uncached",
 				race7dShort: "7-day uncached {v}",
 				activeDays7: "{n}/7 days",
+				heroSourceLocal: "LOCAL · LIVE",
+				rankServerAgo: "SERVER · {t}",
+				guardWindowNote: "The 7-day rank window covers finished UTC days only — today joins after the next sync.",
+				agoJustNow: "just now",
+				agoMin: "{n}m ago",
+				agoHour: "{n}h ago",
+				agoDay: "{n}d ago",
 				deleteBtn: "Delete synced data",
 				deleteConfirmBtn: "Confirm delete",
 				deletePending: "Deleting…",
@@ -465,6 +472,13 @@ window.__ModuleLoader__.load({
 				race7dLabel: "计入全球排名 · 7 日未缓存",
 				race7dShort: "7 日未缓存 {v}",
 				activeDays7: "{n}/7 天",
+				heroSourceLocal: "本机 · 实时",
+				rankServerAgo: "服务器 · {t}",
+				guardWindowNote: "榜单 7 日窗口只统计已结束的 UTC 日 —— 今天的用量在下次同步后并入。",
+				agoJustNow: "刚刚",
+				agoMin: "{n} 分钟前",
+				agoHour: "{n} 小时前",
+				agoDay: "{n} 天前",
 				deleteBtn: "删除已同步数据",
 				deleteConfirmBtn: "确认删除",
 				deletePending: "删除中…",
@@ -562,6 +576,16 @@ window.__ModuleLoader__.load({
 			if (lang === "zh") return h > 0 ? h + "小时" + String(m).padStart(2, "0") + "分" : m + "分钟";
 			return h > 0 ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m";
 		}
+		/** 相对时间（服务器同步新鲜度标注）：en “12m ago”；zh “12 分钟前”。 */
+		function fmtAgo(tsMs, nowMs = Date.now(), lang) {
+			const diff = Math.max(0, Math.floor((nowMs - tsMs) / 1e3));
+			if (diff < 60) return tr(lang, "agoJustNow");
+			const m = Math.floor(diff / 60);
+			if (m < 60) return tr(lang, "agoMin", { n: m });
+			const h = Math.floor(m / 60);
+			if (h < 24) return tr(lang, "agoHour", { n: h });
+			return tr(lang, "agoDay", { n: Math.floor(h / 24) });
+		}
 		//#endregion
 		//#region src/client/card-html.ts
 		/*****************************************************************************
@@ -628,6 +652,11 @@ window.__ModuleLoader__.load({
 			".madrank-card .mk-hero{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;",
 			"  background:var(--dsw-alias-bg-layer-3);padding:12px 14px;display:flex;flex-direction:column;gap:4px}",
 			".madrank-card .mk-klabel{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px}",
+			"/* 来源标注（今日=本机实时 / 7日=服务器镜像）：胶囊小字 */",
+			".madrank-card .mk-src{display:inline-block;margin-left:7px;padding:0 6px;border-radius:6px;",
+			"  font-size:9px;line-height:15px;letter-spacing:.03em;color:var(--dsw-alias-label-tertiary);",
+			"  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);",
+			"  vertical-align:1px;white-space:nowrap}",
 			".madrank-card .mk-big{font-size:26px;font-weight:700;line-height:32px;",
 			"  font-variant-numeric:tabular-nums}",
 			".madrank-card .mk-sub{font-size:12px;color:var(--dsw-alias-label-secondary);",
@@ -677,6 +706,9 @@ window.__ModuleLoader__.load({
 			".madrank-card .mk-sync{border-top:1px solid var(--dsw-alias-border-l2);padding-top:10px;",
 			"  display:flex;flex-direction:column;gap:8px}",
 			".madrank-card .mk-fine{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px;margin:0}",
+			"/* 守卫注脚：今日 > 榜单 7 日 时的口径说明（信任修补，明确来源，不泛化） */",
+			".madrank-card .mk-guard{color:var(--dsw-alias-label-secondary);",
+			"  border-left:2px solid var(--dsw-alias-state-business-primary);padding-left:8px}",
 			".madrank-card button{width:100%;min-height:32px;padding:5px 12px;border-radius:8px;",
 			"  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);",
 			"  font:inherit;font-weight:500;cursor:pointer}",
@@ -813,7 +845,7 @@ window.__ModuleLoader__.load({
 			}
 			return [
 				"<div class=\"mk-hero\">",
-				"<div class=\"mk-klabel\">" + tr(lang, "todayLabel") + "</div>",
+				"<div class=\"mk-klabel\">" + tr(lang, "todayLabel") + "<span class=\"mk-src\">" + tr(lang, "heroSourceLocal") + "</span></div>",
 				"<div class=\"mk-big\">" + big + "</div>",
 				"<div class=\"mk-sub\">" + parts.join(" &nbsp;·&nbsp; ") + "</div>",
 				"<div class=\"mk-chips\">" + chips.join("") + "$CHIPS</div>",
@@ -942,7 +974,7 @@ window.__ModuleLoader__.load({
 		* v0.2 交互规范：退出/删除是配置动作，收进 Settings \u2192 MADRank；
 		* Quick View 只负责「看」（View race 链接保留），两入口不再同质。
 		*/
-		function htmlJoined(hasRank, global, lang, raceUrl, activeDays, share = null) {
+		function htmlJoined(hasRank, global, lang, raceUrl, activeDays, share = null, guardNote = null) {
 			const sole = hasRank && global.participants === 1;
 			const rankBlock = hasRank ? [
 				"<div class=\"mk-rankrow\">",
@@ -950,12 +982,13 @@ window.__ModuleLoader__.load({
 				"<span class=\"mk-chip\" data-tone=\"hot\">" + (sole ? tr(lang, "onlyParticipant") : tr(lang, "topChip", { x: global.topPct.toFixed(1) })) + "</span>",
 				"<span class=\"mk-chip\">" + tr(lang, "activeDays7", { n: Math.min(7, Math.max(0, activeDays)) }) + "</span>",
 				"</div>",
-				"<div class=\"mk-sub\"><span class=\"mk-rlab\">" + tr(lang, "race7dLabel") + "</span><b>" + fmtTokens(global.race7d) + "</b></div>"
+				"<div class=\"mk-sub\"><span class=\"mk-rlab\">" + tr(lang, "race7dLabel") + "</span><b>" + fmtTokens(global.race7d) + "</b>" + (global.updatedAt ? "<span class=\"mk-src\">" + tr(lang, "rankServerAgo", { t: fmtAgo(global.updatedAt, Date.now(), lang) }) + "</span>" : "") + "</div>"
 			].join("") : "<p class=\"mk-fine\">" + tr(lang, "joinedPending") + "</p>";
 			return [
 				"<div class=\"mk-sync\">",
 				"<div class=\"mk-h\"><b>" + tr(lang, "yourRank") + "</b></div>",
 				rankBlock,
+				guardNote === null ? "" : "<p class=\"mk-fine mk-guard\">" + guardNote + "</p>",
 				"<p class=\"mk-fine\">" + tr(lang, "shareFine", { mask: ANON_MASK }) + "</p>",
 				"<div class=\"mk-actions\">",
 				"<a class=\"mk-race\" href=\"" + raceUrl + "\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
@@ -995,13 +1028,14 @@ window.__ModuleLoader__.load({
 			if (!enabled) return htmlJoinCta(lang);
 			const g = snap.global;
 			const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length;
+			const guardNote = g != null && g.race7d > 0 && snap.today != null && snap.today.primaryTokens > g.race7d ? tr(lang, "guardWindowNote") : null;
 			const share = g != null ? buildShare(raceUrl, g.shareToken, g, snap.topModels?.[0]?.model, lang) : null;
 			return htmlJoined(g != null, g ?? {
 				rank: 0,
 				topPct: 0,
 				race7d: 0,
 				participants: 0
-			}, lang, raceUrl, activeDays, hasShareRank(g) ? share : null);
+			}, lang, raceUrl, activeDays, hasShareRank(g) ? share : null, guardNote);
 		}
 		/** 分享出现的门槛:有排名数据(文案依赖真实数字,不用 0 充数)。 */
 		function hasShareRank(g) {

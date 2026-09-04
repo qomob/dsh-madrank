@@ -184,6 +184,49 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
   })
 })
 
+describe('renderCardHtml · 来源标注与守卫注脚（信任修补：口径澄清，不泛化）', () => {
+  it('今日主数字带「本机 · 实时」来源标注（Local 态亦然）', () => {
+    expect(renderCardHtml(base, false)).toContain('LOCAL · LIVE')
+    expect(renderCardHtml(base, true)).toContain('LOCAL · LIVE')
+    expect(renderCardHtml(base, false, { locale: 'zh-CN' })).toContain('本机 · 实时')
+  })
+
+  it('Joined 且 updatedAt 存在：7 日数字带「服务器 · 更新于 X 前」', () => {
+    const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000, updatedAt: Date.now() - 12 * 60_000 } }
+    const html = renderCardHtml(joined, true)
+    expect(html).toContain('SERVER · 12m ago')
+    const zh = renderCardHtml(joined, true, { locale: 'zh-CN' })
+    expect(zh).toContain('服务器 · 12 分钟前')
+  })
+
+  it('Joined 且 updatedAt 缺席：不渲染来源时间（旧镜像兼容）', () => {
+    const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
+    expect(renderCardHtml(joined, true)).not.toContain('SERVER ·')
+    expect(renderCardHtml(joined, true)).not.toContain('服务器 ·')
+  })
+
+  it('守卫注脚：仅当 今日 primary > 服务器 7 日 时出现（窗口/口径澄清）', () => {
+    // 正常关系：today(1.6M) < race7d(8.21M) → 无注脚
+    const calm = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000, updatedAt: Date.now() - 60_000 } }
+    const calmEn = renderCardHtml(calm, true, { style: false })
+    const calmZh = renderCardHtml(calm, true, { style: false, locale: 'zh-CN' })
+    expect(calmEn).not.toContain('The 7-day rank window covers finished UTC days only')
+    expect(calmZh).not.toContain('榜单 7 日窗口只统计已结束的 UTC 日')
+    // 矛盾关系：today(4.91M) > race7d(4.35M) → 注脚解释窗口不含今天
+    const anomaly = { ...base, today: { ...base.today!, primaryTokens: 4_910_000 }, global: { rank: 1284, topPct: 7.4, race7d: 4_350_000 } }
+    expect(renderCardHtml(anomaly, true, { style: false })).toContain('The 7-day rank window covers finished UTC days only')
+    expect(renderCardHtml(anomaly, true, { style: false, locale: 'zh-CN' })).toContain('榜单 7 日窗口只统计已结束的 UTC 日')
+  })
+
+  it('守卫注脚不改变排名数字本身（只澄清口径，不篡改权威值）', () => {
+    const anomaly = { ...base, today: { ...base.today!, primaryTokens: 4_910_000 }, global: { rank: 1284, topPct: 7.4, race7d: 4_350_000 } }
+    const html = renderCardHtml(anomaly, true)
+    expect(html).toContain('#1,284')
+    expect(html).toContain('4.35M')
+    expect(html).toContain('LOCAL · LIVE')
+  })
+})
+
 describe('renderCardHtml · #1/1 信任修补（GAP-D：唯一参与者不显示 TOP 100%）', () => {
   const sole = { ...base, global: { rank: 1, topPct: 100, race7d: 472_942, participants: 1 } }
 

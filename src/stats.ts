@@ -194,7 +194,18 @@ export function topModels(
   return rows.slice(0, limit)
 }
 
-/** 竞赛指标：最近 7 个 UTC 日的 Primary Tokens 总和（今天计入；未含任何数据则窗口自然缺失）。 */
+/**
+ * 竞赛指标：最近 7 个 UTC 日的 Primary Tokens 总和（今天计入；未含任何数据则窗口自然缺失）。
+ *
+ * 定位说明（避免误当死代码删除）：这是「本机口径」的 7 日窗口（含今天、local primary），
+ * 与卡面「计入全球排名 · 7 日」数字**不是同一把尺子**——
+ * 卡上 race7d 来自服务器镜像（只含已结束 UTC 日、上传口径含 cacheWrite，见 sync.ts
+ * composeDayPayload），时点也可能滞后。本机/服务器两把尺子的差异是产品有意为之：
+ * 本地实时 vs 统计权威。当前卡面只展示服务器镜像；本函数保留供：
+ *   1) 设置面板「本地数据」概览的未来本机对照；
+ *   2) 诊断/对账（本地 7 日 vs 服务器 7 日，验证同步完整性）。
+ * 若未来在卡上并列两把尺子，必须带口径标注（见 card-html mk-src 来源标注范式）。
+ */
 export function raceMetric7d(aggregate: DayAggregate, nowMs: number): number {
   return lastNDays(aggregate, nowMs, 7).reduce((acc, d) => acc + d.primaryTokens, 0)
 }

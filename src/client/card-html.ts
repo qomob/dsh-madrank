@@ -10,7 +10,7 @@
  * 口径注释：Primary = uncached input + output；缓存单列 "N cached ⓘ"（hover 出口径说明）。
  *****************************************************************************/
 
-import { fmtActive, resolveLang, tr, WEEKDAYS, type Lang } from './i18n.ts'
+import { fmtActive, fmtAgo, resolveLang, tr, WEEKDAYS, type Lang } from './i18n.ts'
 import type { CardGlobal } from '../global-rank.ts'
 
 export type { CardGlobal } from '../global-rank.ts'
@@ -143,6 +143,11 @@ const CSS = [
 '.madrank-card .mk-hero{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;',
 '  background:var(--dsw-alias-bg-layer-3);padding:12px 14px;display:flex;flex-direction:column;gap:4px}',
 '.madrank-card .mk-klabel{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px}',
+'/* 来源标注（今日=本机实时 / 7日=服务器镜像）：胶囊小字 */',
+'.madrank-card .mk-src{display:inline-block;margin-left:7px;padding:0 6px;border-radius:6px;',
+'  font-size:9px;line-height:15px;letter-spacing:.03em;color:var(--dsw-alias-label-tertiary);',
+'  background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);',
+'  vertical-align:1px;white-space:nowrap}',
 '.madrank-card .mk-big{font-size:26px;font-weight:700;line-height:32px;',
 '  font-variant-numeric:tabular-nums}',
 '.madrank-card .mk-sub{font-size:12px;color:var(--dsw-alias-label-secondary);',
@@ -192,6 +197,9 @@ const CSS = [
 '.madrank-card .mk-sync{border-top:1px solid var(--dsw-alias-border-l2);padding-top:10px;',
 '  display:flex;flex-direction:column;gap:8px}',
 '.madrank-card .mk-fine{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px;margin:0}',
+'/* 守卫注脚：今日 > 榜单 7 日 时的口径说明（信任修补，明确来源，不泛化） */',
+'.madrank-card .mk-guard{color:var(--dsw-alias-label-secondary);',
+'  border-left:2px solid var(--dsw-alias-state-business-primary);padding-left:8px}',
 '.madrank-card button{width:100%;min-height:32px;padding:5px 12px;border-radius:8px;',
 '  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);',
 '  font:inherit;font-weight:500;cursor:pointer}',
@@ -350,7 +358,8 @@ function htmlHero(t: NonNullable<CardSnapshot['today']>, lang: Lang): string {
 
   return [
     '<div class="mk-hero">',
-    '<div class="mk-klabel">' + tr(lang, 'todayLabel') + '</div>',
+    '<div class="mk-klabel">' + tr(lang, 'todayLabel') +
+      '<span class="mk-src">' + tr(lang, 'heroSourceLocal') + '</span></div>',
     '<div class="mk-big">' + big + '</div>',
     '<div class="mk-sub">' + parts.join(' &nbsp;·&nbsp; ') + '</div>',
     '<div class="mk-chips">' + chips.join('') + '$CHIPS</div>',
@@ -503,11 +512,12 @@ function htmlJoinCta(lang: Lang): string {
  */
 function htmlJoined(
   hasRank: boolean,
-  global: { rank: number; topPct: number; race7d: number; participants?: number },
+  global: { rank: number; topPct: number; race7d: number; participants?: number; updatedAt?: number },
   lang: Lang,
   raceUrl: string,
   activeDays: number,
   share: { url: string; text: string; card: string } | null = null,
+  guardNote: string | null = null,
 ): string {
   // GAP-D 信任修补：#1/1 时 TOP 100% 读作垫底 —— 唯一参与者改显 onlyParticipant
   const sole = hasRank && global.participants === 1
@@ -522,13 +532,18 @@ function htmlJoined(
         '<span class="mk-chip">' + tr(lang, 'activeDays7', { n: Math.min(7, Math.max(0, activeDays)) }) + '</span>',
         '</div>',
         '<div class="mk-sub"><span class="mk-rlab">' + tr(lang, 'race7dLabel') + '</span><b>' +
-          fmtTokens(global.race7d) + '</b></div>',
+          fmtTokens(global.race7d) + '</b>' +
+          (global.updatedAt
+            ? '<span class="mk-src">' + tr(lang, 'rankServerAgo', { t: fmtAgo(global.updatedAt, Date.now(), lang) }) + '</span>'
+            : '') +
+          '</div>',
       ].join('')
     : '<p class="mk-fine">' + tr(lang, 'joinedPending') + '</p>'
   return [
     '<div class="mk-sync">',
     '<div class="mk-h"><b>' + tr(lang, 'yourRank') + '</b></div>',
     rankBlock,
+    guardNote === null ? '' : '<p class="mk-fine mk-guard">' + guardNote + '</p>',
     '<p class="mk-fine">' + tr(lang, 'shareFine', { mask: ANON_MASK }) + '</p>',
     '<div class="mk-actions">',
     '<a class="mk-race" href="' + raceUrl + '" target="_blank" rel="noreferrer noopener">' +
@@ -593,6 +608,12 @@ function htmlSync(
   // Active Days：本机近 7 个已完成 UTC 日中有用量数据的天数（本地真实计数，
   // 与站点 /rank 的 x/7 days 辅助信号同口径；纯展示，绝不参与排名公式）。
   const activeDays = (snap.last7Days ?? []).filter((d) => d.primaryTokens > 0).length
+  // 守卫注脚（信任修补）：今日本机主数字 明显大于 服务器 7 日窗口 时，
+  // 明示口径差异——榜单窗口只统计已结束 UTC 日（今天在下次同步后并入），
+  // 避免「今天比 7 天还多」的直觉崩坏。仅确实矛盾时出现，平时零噪音。
+  const guardNote = g != null && g.race7d > 0 && snap.today != null && snap.today.primaryTokens > g.race7d
+    ? tr(lang, 'guardWindowNote')
+    : null
   // 分享按钮:已出排名 + 持有分享令牌才出现(whoami 懒换,见宿主 index.ts)
   const share = g != null
     ? buildShare(raceUrl, g.shareToken, g, snap.topModels?.[0]?.model, lang)
@@ -600,7 +621,7 @@ function htmlSync(
   return htmlJoined(
     g != null,
     g ?? { rank: 0, topPct: 0, race7d: 0, participants: 0 },
-    lang, raceUrl, activeDays, hasShareRank(g) ? share : null,
+    lang, raceUrl, activeDays, hasShareRank(g) ? share : null, guardNote,
   )
 }
 
