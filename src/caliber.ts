@@ -1,17 +1,21 @@
 /**
  * caliber.ts — MADRank Usage 的数据口径（产品级锁定，v0.1）。
  *
- * Primary Tokens（一切排名与展示的主数字）：
+ * Primary Tokens（本地展示主数字）：
  *     uncached input + output
- * Secondary（单独展示，绝不混入主数字）：
+ * Secondary（单独展示，绝不混入本地主数字）：
  *     cacheRead / cacheWrite —— 显示为 "+N cached"
  *
  * 理由：各厂商缓存口径差异大，混算的 "Total Tokens" 无法跨模型比较，
  * 也会让 7-Day Token Race 的数字失去解释力。
  *
- * 全球榜竞赛指标（P1-C/P2 采用）：
- *     RACE_METRIC = 最近 7 个 UTC 日 Primary Tokens 之和
- *                   （7-Day Uncached Tokens）
+ * 全球榜真实性说明（2026-09 复核）：
+ *     上传字段 input = uncached input + cacheWrite（sync.ts 计费口径），
+ *     服务端竞速 total = input + output（即 uncached input + cacheWrite + output）。
+ *     cacheRead 单列，绝不进入竞速。因此「竞速 total」与「本地 primary」
+ *     口径不同：前者含 cacheWrite、后者不含；卡片已用来源标注（本地=LOCAL·LIVE、
+ *     服务端=SERVER + 同步时间）区分两者（见 card-html mk-src）。
+ *     RACE_METRIC_NAME 为历史标识符，不再作为对外措辞使用。
  */
 
 export const PRIMARY_TOKENS = (b: {

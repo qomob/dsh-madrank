@@ -66,14 +66,14 @@ MADRank 关注的是 Usage Rank：谁每天真的在使用 AI、谁持续使用 
 
 **2. 7-Day Token Race**（核心竞争指标）
 
-> **7-Day Uncached Tokens**，即最近 **7 个 UTC 日**的 Primary Tokens 总量。
+> **7 日总量**，即最近 **7 个 UTC 日**的 Primary Tokens 总量。
 
 ```text
 Primary Tokens = uncached input tokens + output tokens
 Cached Tokens  = cache read + cache write
 ```
 
-缓存不会混入主要排名数字，以避免不同模型、不同厂商缓存机制造成的跨模型比较失真。
+关于口径的一个诚实说明：竞速数字是上传的 input+output 全量（uncached input + cache write + output）；**cache read（缓存命中）单独上报、绝不进入竞速**。本地仪表盘上的「未缓存」指本地 primary（uncached input + output）——两个数字回答的是不同问题，卡片对此都已标注：本地数字标 **本机 · 实时**，竞速数字来自服务器并附带同步时间。这样既避免缓存命中差异扭曲跨模型比较，又不隐瞒实际计入的内容。
 
 **3. 全球排名是可选的**
 

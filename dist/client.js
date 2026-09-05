@@ -12,17 +12,21 @@ window.__ModuleLoader__.load({
 		/**
 		* caliber.ts — MADRank Usage 的数据口径（产品级锁定，v0.1）。
 		*
-		* Primary Tokens（一切排名与展示的主数字）：
+		* Primary Tokens（本地展示主数字）：
 		*     uncached input + output
-		* Secondary（单独展示，绝不混入主数字）：
+		* Secondary（单独展示，绝不混入本地主数字）：
 		*     cacheRead / cacheWrite —— 显示为 "+N cached"
 		*
 		* 理由：各厂商缓存口径差异大，混算的 "Total Tokens" 无法跨模型比较，
 		* 也会让 7-Day Token Race 的数字失去解释力。
 		*
-		* 全球榜竞赛指标（P1-C/P2 采用）：
-		*     RACE_METRIC = 最近 7 个 UTC 日 Primary Tokens 之和
-		*                   （7-Day Uncached Tokens）
+		* 全球榜真实性说明（2026-09 复核）：
+		*     上传字段 input = uncached input + cacheWrite（sync.ts 计费口径），
+		*     服务端竞速 total = input + output（即 uncached input + cacheWrite + output）。
+		*     cacheRead 单列，绝不进入竞速。因此「竞速 total」与「本地 primary」
+		*     口径不同：前者含 cacheWrite、后者不含；卡片已用来源标注（本地=LOCAL·LIVE、
+		*     服务端=SERVER + 同步时间）区分两者（见 card-html mk-src）。
+		*     RACE_METRIC_NAME 为历史标识符，不再作为对外措辞使用。
 		*/
 		const PRIMARY_TOKENS = (b) => b.inputTokens + b.outputTokens;
 		const CACHED_TOKENS = (b) => b.cacheReadTokens + b.cacheWriteTokens;
@@ -369,8 +373,8 @@ window.__ModuleLoader__.load({
 				yourRank: "Your global rank",
 				topChip: "TOP {x}%",
 				onlyParticipant: "Only participant",
-				race7dLabel: "Ranked · 7-day uncached",
-				race7dShort: "7-day uncached {v}",
+				race7dLabel: "Ranked · 7-day total",
+				race7dShort: "7-day total {v}",
 				activeDays7: "{n}/7 days",
 				heroSourceLocal: "LOCAL · LIVE",
 				rankServerAgo: "SERVER · {t}",
@@ -469,8 +473,8 @@ window.__ModuleLoader__.load({
 				yourRank: "你的全球排名",
 				topChip: "前 {x}%",
 				onlyParticipant: "当前唯一参与者",
-				race7dLabel: "计入全球排名 · 7 日未缓存",
-				race7dShort: "7 日未缓存 {v}",
+				race7dLabel: "计入全球排名 · 7 日总量",
+				race7dShort: "7 日总量 {v}",
 				activeDays7: "{n}/7 天",
 				heroSourceLocal: "本机 · 实时",
 				rankServerAgo: "服务器 · {t}",
@@ -676,6 +680,9 @@ window.__ModuleLoader__.load({
 			"  letter-spacing:.04em;text-transform:uppercase}",
 			".madrank-card .mk-h span{font-size:11px;color:var(--dsw-alias-label-tertiary);",
 			"  font-variant-numeric:tabular-nums}",
+			"/* 历史区拆分明细（in · out · cached）：窗口聚合下的次级口径，只展示不进排名 */",
+			".madrank-card .mk-hsplit{font-size:10px;color:var(--dsw-alias-label-tertiary);",
+			"  font-variant-numeric:tabular-nums;padding:0 2px 2px}",
 			"/* 模型行 */",
 			".madrank-card .mk-mrow{display:flex;justify-content:space-between;gap:10px;",
 			"  align-items:baseline;font-size:12px}",
@@ -947,9 +954,23 @@ window.__ModuleLoader__.load({
 			const n = range === "30d" && hasHistory ? Math.min(30, entries.length) : Math.min(7, entries.length);
 			const days = entries.slice(-n);
 			const total = days.reduce((a, d) => a + d.primaryTokens, 0);
+			const split = hasHistory ? (() => {
+				const s = {
+					i: 0,
+					o: 0,
+					c: 0
+				};
+				for (const d of days) {
+					s.i += d.inputTokens ?? 0;
+					s.o += d.outputTokens ?? 0;
+					s.c += d.cachedTokens ?? 0;
+				}
+				return "<span class=\"mk-hsplit\">" + tr(lang, "segIn", { v: fmtTokens(s.i) }) + " · " + tr(lang, "segOut", { v: fmtTokens(s.o) }) + (s.c > 0 ? " · " + tr(lang, "segCached", { v: fmtTokens(s.c) }) : "") + "</span>";
+			})() : "";
 			return [
 				"<div>",
 				"<div class=\"mk-h\"><b>" + tr(lang, range === "30d" && hasHistory ? "last30" : "last7") + "</b><span>" + fmtTokens(total) + "</span><span class=\"mk-hspring\"></span>" + seg + "</div>",
+				split,
 				htmlHistBars(days, lang),
 				"</div>"
 			].join("");

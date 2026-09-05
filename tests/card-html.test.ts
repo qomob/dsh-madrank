@@ -81,13 +81,13 @@ describe('renderCardHtml · View race 链接（self-host 派生）', () => {
 describe('renderCardHtml · 状态 B（Joined）', () => {
   const joined = { ...base, global: { rank: 1284, topPct: 7.4, race7d: 8_210_000 } }
 
-  it('pill=Global ranking on；底部 Your global rank 块：#1,284 / TOP 7.4% / Ranked · 7-day uncached 8.21M', () => {
+  it('pill=Global ranking on；底部 Your global rank 块：#1,284 / TOP 7.4% / Ranked · 7-day total 8.21M', () => {
     const html = renderCardHtml(joined, true)
     expect(html).toContain('Global ranking on')
     expect(html).toContain('Your global rank')
     expect(html).toContain('#1,284')
     expect(html).toContain('TOP 7.4%')
-    expect(html).toContain('Ranked · 7-day uncached')
+    expect(html).toContain('Ranked · 7-day total')
     expect(html).toContain('8.21M')
   })
 
@@ -150,7 +150,7 @@ describe('renderCardHtml · 语言跟随宿主（zh / 回退）', () => {
     expect(html).toContain('你的全球排名')
     expect(html).toContain('#1,284')
     expect(html).toContain('前 7.4%')
-    expect(html).toContain('计入全球排名 · 7 日未缓存')
+    expect(html).toContain('计入全球排名 · 7 日总量')
     expect(html).toContain('查看排名赛')
     // v0.2：退出/删除是配置动作，Quick View 不再提供
     expect(html).not.toContain('>退出</button>')
@@ -295,6 +295,21 @@ describe('renderCardHtml · 范围切换（7D/30D/单日）', () => {
     expect(html).toContain('<div class="mk-hval"></div>')
     expect(html).not.toContain('mk-hval">1.60M')
     expect(html).toContain('Last 30 days')
+  })
+
+  it('P1 拆分明细：历史窗口标题下并列 in · out · cached（只展示，不改排名数字）', () => {
+    // 7D 窗口内仅今天有数据：1.6M（in 1.28M / out 0.32M / cached 16M）
+    const html = renderCardHtml(withHistory, false)
+    expect(html).toContain('mk-hsplit')
+    expect(html).toContain('1.28M in · 320.0K out · 16.00M cached')
+    // zh 同构（本地口径求和，标注随语言）
+    const zh = renderCardHtml(withHistory, false, { locale: 'zh-CN' })
+    expect(zh).toContain('输入 1.28M · 输出 320.0K')
+    expect(zh).toContain('缓存 16.00M')
+    // 排名数字本身不受明细影响（仍是 primary 总和）
+    expect(html).toContain('<b>Last 7 days</b><span>1.60M</span>')
+    // v1 快照（无 history）不出现明细行
+    expect(renderCardHtml(base, false)).not.toContain('mk-hsplit')
   })
 
   it('单日：日期标题 + 明细分段 + 模型份额；选中段 aria-pressed=true', () => {

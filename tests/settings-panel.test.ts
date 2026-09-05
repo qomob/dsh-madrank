@@ -188,7 +188,7 @@ describe('Settings → MADRank 配置面板（v0.2 交互规范）', () => {
     mount(createElement(MadrankSettingsPanel, {
       scope: makeScope({ enabled: true, global: { rank: 1, topPct: 12.5, race7d: 9_500_000, updatedAt: Date.UTC(2026, 8, 3, 8, 2) } }),
     }))
-    expect(document.body.textContent).toContain('7-day uncached 9.50M')
+    expect(document.body.textContent).toContain('7-day total 9.50M')
     act(() => { root?.unmount() })
     mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true }) }))
     expect(document.body.textContent).toContain('Not synced yet')

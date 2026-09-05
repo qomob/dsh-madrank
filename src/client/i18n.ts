@@ -49,8 +49,8 @@ const en = {
   yourRank: 'Your global rank',
   topChip: 'TOP {x}%',
   onlyParticipant: 'Only participant',
-  race7dLabel: 'Ranked · 7-day uncached',
-  race7dShort: '7-day uncached {v}',
+  race7dLabel: 'Ranked · 7-day total',
+  race7dShort: '7-day total {v}',
   activeDays7: '{n}/7 days',
   /* 来源标注：今日 = 本机实时投影；7 日 = 服务器上次同步镜像 */
   heroSourceLocal: 'LOCAL · LIVE',
@@ -157,8 +157,8 @@ const zh: Record<DictKey, string> = {
   yourRank: '你的全球排名',
   topChip: '前 {x}%',
   onlyParticipant: '当前唯一参与者',
-  race7dLabel: '计入全球排名 · 7 日未缓存',
-  race7dShort: '7 日未缓存 {v}',
+  race7dLabel: '计入全球排名 · 7 日总量',
+  race7dShort: '7 日总量 {v}',
   activeDays7: '{n}/7 天',
   /* 来源标注：今日 = 本机实时投影；7 日 = 服务器上次同步镜像 */
   heroSourceLocal: '本机 · 实时',

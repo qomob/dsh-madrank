@@ -36,14 +36,14 @@ Data comes from the DSH session projection feed — the plugin never reads DSH's
 
 **2. 7-Day Token Race** (the core competitive metric)
 
-> **7-Day Uncached Tokens** — total primary tokens over the last **7 UTC days**.
+> **7-Day Total** — your primary tokens over the last **7 UTC days**.
 
 ```text
 Primary Tokens = uncached input tokens + output tokens
 Cached Tokens  = cache read + cache write
 ```
 
-Cached tokens are excluded from the ranking metric so cross-model, cross-provider cache differences never distort the comparison.
+A note on honesty: the race figure is the full input+output as uploaded (uncached input + cache write + output); **cache reads are reported separately and never counted** toward the race. "Uncached" on the local dashboard refers to your local primary (uncached input + output) — the two numbers answer different questions, and the card labels both: local figures are marked **LOCAL · LIVE**, race figures carry the server sync time. This keeps read-cache differences from distorting comparisons while staying truthful about what is counted.
 
 **3. Opt-in Global Ranking**
 

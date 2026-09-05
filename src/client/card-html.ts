@@ -167,6 +167,9 @@ const CSS = [
 '  letter-spacing:.04em;text-transform:uppercase}',
 '.madrank-card .mk-h span{font-size:11px;color:var(--dsw-alias-label-tertiary);',
 '  font-variant-numeric:tabular-nums}',
+'/* 历史区拆分明细（in · out · cached）：窗口聚合下的次级口径，只展示不进排名 */',
+'.madrank-card .mk-hsplit{font-size:10px;color:var(--dsw-alias-label-tertiary);',
+  '  font-variant-numeric:tabular-nums;padding:0 2px 2px}',
 '/* 模型行 */',
 '.madrank-card .mk-mrow{display:flex;justify-content:space-between;gap:10px;',
 '  align-items:baseline;font-size:12px}',
@@ -480,10 +483,28 @@ function htmlHistorySection(
   const n = range === '30d' && hasHistory ? Math.min(30, entries.length) : Math.min(7, entries.length)
   const days = entries.slice(-n)
   const total = days.reduce((a, d) => a + d.primaryTokens, 0)
+  // 明细：输入/输出/缓存（与今日 hero 同口径；仅 history 快照有真拆分，
+  // v1 仅 last7Days 的快照不显示——避免出现「0 in · 0 out」噪音）
+  const split = hasHistory
+    ? (() => {
+        const s = { i: 0, o: 0, c: 0 }
+        for (const d of days) {
+          s.i += d.inputTokens ?? 0
+          s.o += d.outputTokens ?? 0
+          s.c += d.cachedTokens ?? 0
+        }
+        return '<span class="mk-hsplit">' +
+          tr(lang, 'segIn', { v: fmtTokens(s.i) }) + ' · ' +
+          tr(lang, 'segOut', { v: fmtTokens(s.o) }) +
+          (s.c > 0 ? ' · ' + tr(lang, 'segCached', { v: fmtTokens(s.c) }) : '') +
+          '</span>'
+      })()
+    : ''
   return [
     '<div>',
     '<div class="mk-h"><b>' + tr(lang, range === '30d' && hasHistory ? 'last30' : 'last7') + '</b><span>' +
       fmtTokens(total) + '</span><span class="mk-hspring"></span>' + seg + '</div>',
+    split,
     htmlHistBars(days, lang),
     '</div>',
   ].join('')
