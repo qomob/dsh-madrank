@@ -141,32 +141,65 @@ MATCH ✓
 
 ## 安装
 
-**方式一：npm（推荐）**
+> DSH 插件由 **profile** 挂载。下面两件事必须同时成立，否则插件会静默失效：
+> 1. 包已在该 profile 中**声明并安装**（`package.json` + `node_modules`，通过 `dsh plugin … add`）；
+> 2. 该 profile **挂载**了它 —— `cordis.patch.yml` 里的 insert 条目。
+>
+> 需要 Node **≥ 22.18**（Host 半侧是 TypeScript 源码、靠类型剥离直载；桌面 app 自带 Node 24，天然满足）。
+
+### 方式一：桌面 app 内置插件管理器（app 内推荐）
+
+打开 **设置 → 插件（Plugins）**，从以下任一来源安装：
+
+* **GitHub** —— 仓库 `qomob/dsh-madrank`
+* **npm** —— 包 `@qomob/dsh-madrank`
+
+然后**完整退出并重开 app**（profile 组合只在启动时加载，刷新页面不够）。若管理器未自动挂载，补上下面的挂载条目后再重启。
+
+### 方式二：命令行（适用于任意 profile：`desktop`、`web`…）
 
 ```bash
-cd ~/.dsh/profiles/web
-pnpm add @qomob/dsh-madrank
+# GitHub（始终取 main 最新）
+dsh plugin --profile desktop add github:qomob/dsh-madrank
+
+# 或 npm 已发布版本
+dsh plugin --profile desktop add @qomob/dsh-madrank
 ```
 
-在 `~/.dsh/profiles/web/cordis.patch.yml` 加入：
+`dsh plugin` 会在 `~/.dsh/profiles/<profile>/` 内转发给 pnpm，从而**正确声明依赖**（未声明的包会在下次 `pnpm install` 时被剪掉）。
+
+随后在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 加入挂载条目：
 
 ```yaml
 - insert:
     - name: '@qomob/dsh-madrank'
 ```
 
-重启 DSH。启动日志出现 `settings ns registered: madrank-usage`、侧栏出现 MADRank 入口即安装成功。
+重启 DSH。
 
-**方式二：GitHub 本地开发**
+### 方式三：本地开发（改动实时生效）
 
 ```bash
 git clone https://github.com/qomob/dsh-madrank.git
 cd dsh-madrank && npm install && npm run build:client
-cd ~/.dsh/profiles/web
-pnpm add 'link:/absolute/path/to/dsh-madrank'
+dsh plugin --profile desktop add 'link:/absolute/path/to/dsh-madrank'
 ```
 
-注意使用 `link:` 而不是 `file:`（`file:` 会复制实体、不再随源码同步）。之后同样注册并重启 DSH。
+注意使用 `link:` 而不是 `file:`（`file:` 会复制实体、不再随源码同步）。之后同样补挂载条目并重启。
+
+### 验证
+
+* 侧栏出现 **MADRank** 入口；
+* 日志出现 `madrankUsage projection registered` 与 `settings ns registered: madrank-usage`。
+
+### 排障：装完却没有反应
+
+| 现象 | 检查 |
+| --- | --- |
+| 无 MADRank 入口、无日志 | `cordis.patch.yml` 缺少挂载条目 |
+| 装了别的插件后本插件消失 | profile `package.json` 里未声明依赖（重跑 `dsh plugin … add`） |
+| 缺「settings ns registered」这行 | profile 没有完整重启，或只刷新了页面 |
+| UI/文案比本 README 旧 | 装到了 npm 上的旧版本 —— 改用 GitHub 源，或升级（`dsh plugin --profile desktop add @qomob/dsh-madrank@latest`） |
 
 ---
 

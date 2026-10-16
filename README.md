@@ -104,32 +104,65 @@ The suite covers streaming replacement, waterfall tool traffic, cross-midnight b
 
 ## Installation
 
-**Option 1: npm (recommended)**
+> A DSH plugin is mounted from a **profile**. Two things must both be true, or the plugin silently does nothing:
+> 1. the package is **declared/installed** in the profile (`package.json` + `node_modules`, via `dsh plugin … add`);
+> 2. the profile **mounts** it — a `cordis.patch.yml` insert entry.
+>
+> Requires Node **≥ 22.18** (the Host half is TypeScript loaded directly via type stripping; the desktop app ships Node 24, so it is satisfied out of the box).
+
+### Option 1: Desktop app's built-in plugin manager (recommended for the app)
+
+Open **Settings → Plugins** and install from one of:
+
+* **GitHub** — repository `qomob/dsh-madrank`
+* **npm** — package `@qomob/dsh-madrank`
+
+Then **fully quit and reopen the app** (the profile composition is loaded at startup; reloading the page is not enough). If the manager leaves the plugin un-mounted, add the mount entry below, then restart.
+
+### Option 2: CLI (any profile: `desktop`, `web`, …)
 
 ```bash
-cd ~/.dsh/profiles/web
-pnpm add @qomob/dsh-madrank
+# GitHub (always the latest `main`)
+dsh plugin --profile desktop add github:qomob/dsh-madrank
+
+# …or the published npm package
+dsh plugin --profile desktop add @qomob/dsh-madrank
 ```
 
-Add to `~/.dsh/profiles/web/cordis.patch.yml`:
+`dsh plugin` forwards to pnpm inside `~/.dsh/profiles/<profile>/`, which declares the dependency properly (an undeclared package gets pruned on the next `pnpm install`).
+
+Then add the mount entry to `~/.dsh/profiles/<profile>/cordis.patch.yml`:
 
 ```yaml
 - insert:
     - name: '@qomob/dsh-madrank'
 ```
 
-Restart DSH. Installation succeeded when the log shows `settings ns registered: madrank-usage` and the MADRank entry appears in the sidebar.
+And restart DSH.
 
-**Option 2: local development from GitHub**
+### Option 3: local development (live edits)
 
 ```bash
 git clone https://github.com/qomob/dsh-madrank.git
 cd dsh-madrank && npm install && npm run build:client
-cd ~/.dsh/profiles/web
-pnpm add 'link:/absolute/path/to/dsh-madrank'
+dsh plugin --profile desktop add 'link:/absolute/path/to/dsh-madrank'
 ```
 
-Use `link:` not `file:` (`file:` copies the package and breaks source sync). Then register and restart DSH as above.
+Use `link:` not `file:` (`file:` copies the package and breaks source sync). Add the mount entry and restart as above.
+
+### Verify
+
+* the sidebar shows the **MADRank** entry;
+* the log shows `madrankUsage projection registered` and `settings ns registered: madrank-usage`.
+
+### Troubleshooting — installed but nothing appears
+
+| Symptom | Check |
+| --- | --- |
+| No MADRank entry, no log lines | Mount entry missing from `cordis.patch.yml` |
+| Plugin gone after an unrelated install | Dependency not declared in the profile `package.json` (re-run `dsh plugin … add`) |
+| "settings ns registered" missing | Profile never restarted, or the app was only reloaded |
+| Older UI/copy than this README | npm install of an older version — use the GitHub spec, or upgrade (`dsh plugin --profile desktop add @qomob/dsh-madrank@latest`) |
 
 ---
 

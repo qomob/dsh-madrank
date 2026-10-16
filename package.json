@@ -1,6 +1,6 @@
 {
   "name": "@qomob/dsh-madrank",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
   "license": "MIT",
   "type": "module",
@@ -14,6 +14,7 @@
     "src",
     "dist",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE"
   ],
   "repository": {
@@ -31,6 +32,9 @@
     "plugin",
     "tokens"
   ],
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "build:client": "node tools/build-client.mjs",
     "test": "vitest run",
@@ -38,7 +42,9 @@
     "reconcile": "node --experimental-strip-types tools/reconcile-cli.ts",
     "preview": "node --experimental-strip-types tools/build-card-preview.ts",
     "reconcile:fixture": "node --experimental-strip-types tools/reconcile-cli.ts tests/fixtures/real-world/usage-events.jsonl",
-    "verify:dsh": "node --experimental-strip-types tools/verify-compat.ts"
+    "verify:dsh": "node --experimental-strip-types tools/verify-compat.ts",
+    "prepack": "npm run build:client",
+    "prepublishOnly": "npm run typecheck && npm test"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.2",
@@ -53,6 +59,9 @@
   "devDependencies": {
     "@types/react": "^19.2.18",
     "happy-dom": "^20.12.0",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "rolldown": "^1.2.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   }
 }
