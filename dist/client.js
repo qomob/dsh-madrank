@@ -312,6 +312,7 @@ window.__ModuleLoader__.load({
 				dayHeading: "{w} · {d}",
 				joinFine: "Optional: share <b>daily aggregates only</b> (token counts, model names). Never prompts, responses, or files. Off by default.",
 				joinCta: "Turn on global ranking",
+				leaveCta: "Leave global ranking",
 				notJoined: "Not participating",
 				yourRank: "Your global rank",
 				topChip: "TOP {x}%",
@@ -412,6 +413,7 @@ window.__ModuleLoader__.load({
 				dayHeading: "{w} · {d}",
 				joinFine: "可选：仅共享<b>每日聚合数字</b>（Token 数与模型名）。绝不上传提示词、回复或文件。默认关闭。",
 				joinCta: "开启全球排名",
+				leaveCta: "退出全球排名",
 				notJoined: "尚未参与",
 				yourRank: "你的全球排名",
 				topChip: "前 {x}%",
@@ -694,6 +696,10 @@ window.__ModuleLoader__.load({
 			"  color:var(--dsw-alias-state-business-primary);text-decoration:none;border-radius:4px}",
 			".madrank-card a.mk-race:hover{text-decoration:underline}",
 			".madrank-card a.mk-race:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}",
+			".madrank-card button.mk-leave{background:transparent;border:none;padding:0;font:inherit;font-size:12px;",
+			"  line-height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:4px}",
+			".madrank-card button.mk-leave:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}",
+			".madrank-card button.mk-leave:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}",
 			"/* cached ⓘ：纯 CSS tooltip（hover/focus），口径说明单点解释 */",
 			".madrank-card .mk-tip{position:relative;cursor:help;",
 			"  border-bottom:1px dotted var(--dsw-alias-border-l2)}",
@@ -954,7 +960,10 @@ window.__ModuleLoader__.load({
 				guardNote === null ? "" : "<p class=\"mk-fine mk-guard\">" + guardNote + "</p>",
 				"<p class=\"mk-fine\">" + tr(lang, "shareFine", { mask: ANON_MASK }) + "</p>",
 				"<div class=\"mk-actions\">",
+				"<span style=\"display:inline-flex;align-items:center;gap:12px\">",
 				"<a class=\"mk-race\" href=\"" + raceUrl + "\" target=\"_blank\" rel=\"noreferrer noopener\">" + tr(lang, "viewRace") + " <span aria-hidden=\"true\">→</span></a>",
+				"<button type=\"button\" class=\"mk-leave\" data-madrank-leave=\"1\">" + tr(lang, "leaveCta") + "</button>",
+				"</span>",
 				share !== null ? "<button type=\"button\" class=\"mk-share\" data-madrank-share=\"1\" data-share-url=\"" + esc(share.url) + "\" data-share-card=\"" + esc(share.card) + "\" data-share-text=\"" + esc(share.text) + "\">" + tr(lang, "shareCta") + "</button>" : "",
 				"</div>",
 				"</div>"
@@ -1300,7 +1309,7 @@ window.__ModuleLoader__.load({
 				desc: tr(lang, "sRankingDesc"),
 				checked: enabled,
 				onToggle: (next) => {
-					Promise.resolve(next ? scope.set("enabled", true) : scope.unset("enabled")).catch(() => {});
+					Promise.resolve(scope.set("enabled", next)).catch(() => {});
 				}
 			}))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sSync")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(ToggleRow, {
 				label: tr(lang, "sSyncToggle"),
@@ -1700,6 +1709,12 @@ window.__ModuleLoader__.load({
 					force((x) => x + 1);
 				};
 				join?.addEventListener("click", onJoin);
+				const leave = rootEl.querySelector("[data-madrank-leave]");
+				const onLeave = () => {
+					Promise.resolve(scope.set("enabled", false)).catch(() => {});
+					force((x) => x + 1);
+				};
+				leave?.addEventListener("click", onLeave);
 				const shareBtn = rootEl.querySelector("[data-madrank-share]");
 				const onShare = (ev) => {
 					const el = ev.currentTarget;
@@ -1762,6 +1777,7 @@ window.__ModuleLoader__.load({
 				dayBars.forEach((b) => b.addEventListener("click", onDayBar));
 				return () => {
 					join?.removeEventListener("click", onJoin);
+					leave?.removeEventListener("click", onLeave);
 					shareBtn?.removeEventListener("click", onShare);
 					rangeBtns.forEach((b) => b.removeEventListener("click", onRange));
 					dayBars.forEach((b) => b.removeEventListener("click", onDayBar));

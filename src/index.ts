@@ -153,8 +153,12 @@ const storeHolder: {
 
 /** 统一更新排名镜像 + 客户端投影引用（同源同引用）。 */
 function setGlobalRank(rec: GlobalRankRecord | null): void {
+  const prev = storeHolder.globalRank
   storeHolder.globalRank = rec
   storeHolder.globalView = rec === null ? null : cardGlobalFromRecord(rec)
+  if (rec?.rank !== prev?.rank || rec?.total !== prev?.total || rec?.shareToken !== prev?.shareToken) {
+    debugLog(dataDir(), `rank mirror updated rank=${rec?.rank ?? 'none'} total=${rec?.total ?? 0}`)
+  }
 }
 
 /**
@@ -223,7 +227,7 @@ function buildDefinition(): ProjectionDefinitionLike {
 }
 
 export function apply(ctx: CtxLike & Record<string, unknown>, config?: unknown): void {
-  debugLog(dataDir(), `apply config=${JSON.stringify(readSettings(config))}`)
+  debugLog(dataDir(), `apply v0.5.1 config=${JSON.stringify(readSettings(config))}`)
   const log = ctx.logger ?? {
     info: (m: string) => console.info('[madrank]', m),
     warn: (m: string, ...rest: unknown[]) => console.warn('[madrank]', m, ...rest),
@@ -298,7 +302,14 @@ function start(
   const definition = buildDefinition()
   const disposeRegister = registry.register(definition)
   // 排名镜像 → 客户端可见投影（独立 key；view 读缓存引用）
-  const disposeRankRegister = registry.register(buildRankDefinition(() => storeHolder.globalView))
+  let rankViewCalls = 0
+  const disposeRankRegister = registry.register(buildRankDefinition(() => {
+    rankViewCalls += 1
+    if (rankViewCalls === 1) {
+      debugLog(dataDir(), `rank projection view first call -> ${storeHolder.globalView ? '#' + storeHolder.globalView.rank : 'null'}`)
+    }
+    return storeHolder.globalView
+  }))
   log.info('madrankUsage + madrankRank projections registered')
   debugLog(dataDir(), 'start: projection registered, store loaded')
 

@@ -239,6 +239,10 @@ const CSS = [
 '  color:var(--dsw-alias-state-business-primary);text-decoration:none;border-radius:4px}',
 '.madrank-card a.mk-race:hover{text-decoration:underline}',
 '.madrank-card a.mk-race:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
+'.madrank-card button.mk-leave{background:transparent;border:none;padding:0;font:inherit;font-size:12px;',
+'  line-height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:4px}',
+'.madrank-card button.mk-leave:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}',
+'.madrank-card button.mk-leave:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}',
 '/* cached ⓘ：纯 CSS tooltip（hover/focus），口径说明单点解释 */',
 '.madrank-card .mk-tip{position:relative;cursor:help;',
 '  border-bottom:1px dotted var(--dsw-alias-border-l2)}',
@@ -567,8 +571,11 @@ function htmlJoined(
     guardNote === null ? '' : '<p class="mk-fine mk-guard">' + guardNote + '</p>',
     '<p class="mk-fine">' + tr(lang, 'shareFine', { mask: ANON_MASK }) + '</p>',
     '<div class="mk-actions">',
+    '<span style="display:inline-flex;align-items:center;gap:12px">',
     '<a class="mk-race" href="' + raceUrl + '" target="_blank" rel="noreferrer noopener">' +
       tr(lang, 'viewRace') + ' <span aria-hidden="true">\u2192</span></a>',
+    '<button type="button" class="mk-leave" data-madrank-leave="1">' + tr(lang, 'leaveCta') + '</button>',
+    '</span>',
     share !== null
       ? '<button type="button" class="mk-share" data-madrank-share="1"' +
         ' data-share-url="' + esc(share.url) + '"' +

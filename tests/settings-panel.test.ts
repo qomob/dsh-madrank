@@ -98,7 +98,7 @@ describe('Settings → MADRank 配置面板（v0.2 交互规范）', () => {
     expect(document.querySelector('.mkp-tag')?.getAttribute('data-on')).toBe('true')
   })
 
-  it('「参与全球排名」真开关：off → set("enabled", true)；on → unset("enabled")', () => {
+  it('「参与全球排名」真开关：off → set("enabled", true)；on → set("enabled", false)', () => {
     const setSpy = vi.fn()
     mount(createElement(MadrankSettingsPanel, { scope: makeScope({}, setSpy) }))
     const sw = switchBtn('Participate in MADRank global ranking')
@@ -111,7 +111,7 @@ describe('Settings → MADRank 配置面板（v0.2 交互规范）', () => {
     const sw2 = switchBtn('Participate in MADRank global ranking')
     expect(sw2?.getAttribute('aria-checked')).toBe('true')
     act(() => { sw2?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
-    expect(setSpy2).toHaveBeenCalledWith('enabled', undefined)
+    expect(setSpy2).toHaveBeenCalledWith('enabled', false)
   })
 
   it('「自动同步」依赖排名开启：off 禁用 + hint；on 可切（set("autoSync", …)）', () => {

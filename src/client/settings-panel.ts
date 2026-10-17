@@ -296,7 +296,7 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
           desc: tr(lang, 'sRankingDesc'),
           checked: enabled,
           onToggle: (next) => {
-            void Promise.resolve(next ? scope.set('enabled', true) : scope.unset('enabled')).catch(() => {})
+            void Promise.resolve(scope.set('enabled', next)).catch(() => {})
           },
         }),
       ),

@@ -153,6 +153,10 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const join = rootEl.querySelector('[data-madrank-join]')
     const onJoin = (): void => { void Promise.resolve(scope.set('enabled', true)).catch(() => {}); force(x => x + 1) }
     join?.addEventListener('click', onJoin)
+    // 显式退出通道：joined 态卡片直接可关（不再只藏在 Settings 里）
+    const leave = rootEl.querySelector('[data-madrank-leave]')
+    const onLeave = (): void => { void Promise.resolve(scope.set('enabled', false)).catch(() => {}); force(x => x + 1) }
+    leave?.addEventListener('click', onLeave)
 
     // 分享:打开分享海报弹层(自动卡片截图 + 可编辑文案 + 复制/下载/带图分享/X)
     const shareBtn = rootEl.querySelector('[data-madrank-share]')
@@ -214,6 +218,7 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     dayBars.forEach((b) => b.addEventListener('click', onDayBar))
     return () => {
       join?.removeEventListener('click', onJoin)
+      leave?.removeEventListener('click', onLeave)
       shareBtn?.removeEventListener('click', onShare)
       rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
       dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
