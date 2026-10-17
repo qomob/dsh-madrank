@@ -106,6 +106,10 @@ describe('composeGlobalView（组装优先级锁定）', () => {
     expect(composeGlobalView(undefined, undefined))
       .toEqual({ global: null, raceUrl: 'https://madrank.ai/race' })
   })
+  it('feed（投影快照）优先于 settings mirror（v0.5 排名通道）', () => {
+    expect(composeGlobalView(undefined, { global: null }, { global: scopeGlobal }))
+      .toEqual({ global: scopeGlobal, raceUrl: 'https://madrank.ai/race' })
+  })
   it('fixture 显式 null 覆盖 mirror（测试口可以强制诚实空态）', () => {
     expect(composeGlobalView({ global: null }, { global: scopeGlobal })?.global).toBeNull()
   })

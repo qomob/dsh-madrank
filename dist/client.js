@@ -274,9 +274,9 @@ window.__ModuleLoader__.load({
 		*   > settings mirror（宿主 resolve 注入的唯一排名缝）> null（诚实空态）。
 		* 投影 feed 不携带排名——usage 语义与 gamification 永不互串。
 		*/
-		function composeGlobalView(fixture, scope) {
+		function composeGlobalView(fixture, scope, feed) {
 			return {
-				global: fixture?.global !== void 0 ? fixture.global ?? null : scope?.global ?? null,
+				global: fixture?.global !== void 0 ? fixture.global ?? null : feed?.global !== void 0 && feed.global !== null ? feed.global : scope?.global ?? null,
 				raceUrl: raceUrlFromEndpoint(scope?.endpoint)
 			};
 		}
@@ -1134,7 +1134,7 @@ window.__ModuleLoader__.load({
 		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
 		*/
 		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-		const PLUGIN_VERSION = "0.5.1";
+		const PLUGIN_VERSION = "0.5.2";
 		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 		const SITE_FALLBACK = "https://madrank.ai";
 		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
@@ -1350,7 +1350,7 @@ window.__ModuleLoader__.load({
 				v: tr(lang, "sDaysCount", { n: recordDays })
 			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "sPluginName"),
-				v: "v0.5.1"
+				v: "v0.5.2"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sStatus"),
 				v: "● " + tr(lang, "sPluginEnabled")
@@ -1679,7 +1679,7 @@ window.__ModuleLoader__.load({
 			try {
 				const base = dataTick.get();
 				const fixture = (typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ : void 0) ?? {};
-				const { global, raceUrl } = composeGlobalView(fixture, scopeValue(scope));
+				const { global, raceUrl } = composeGlobalView(fixture, scopeValue(scope), base);
 				html = renderCardHtml({
 					...base,
 					...fixture,
@@ -1999,11 +1999,13 @@ window.__ModuleLoader__.load({
 				const d = cardDataFromList({ byId }, nowMs);
 				let global = null;
 				if (byId !== null && typeof byId === "object") for (const entry of Object.values(byId)) {
-					const raw = entry?.projectionValues?.[RANK_PROJECTION_KEY];
-					if (raw !== void 0) {
-						global = decodeRankView(raw);
-						if (global !== null) break;
-					}
+					const pv = entry?.projectionValues;
+					if (pv === void 0) continue;
+					const usage = pv["madrankUsage"];
+					global = decodeRankView(usage?.["global"]);
+					if (global !== null) break;
+					global = decodeRankView(pv[RANK_PROJECTION_KEY]);
+					if (global !== null) break;
 				}
 				return {
 					today: d.today,
@@ -2028,10 +2030,11 @@ window.__ModuleLoader__.load({
 				const useSessions = props["useSessions"];
 				const byId = typeof useSessions === "function" ? useSessions(selectById) : void 0;
 				(0, react.useEffect)(() => {
-					dataTick.set({
+					const snap = {
 						...snapshotFrom(byId, Date.now()),
 						...windowFixture()
-					});
+					};
+					dataTick.set(snap);
 				}, [byId]);
 				return (0, react.createElement)(Comp, {
 					...props,

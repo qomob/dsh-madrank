@@ -165,6 +165,15 @@ function buildViewSchema() {
         totalRequests: zod.number().int().nonnegative(),
         totalPrimaryTokens: zod.number().int().nonnegative(),
         totalCachedTokens: zod.number().int().nonnegative(),
+        // 排名镜像随 usage 视图一起下发（客户端列表已证明可达的通道）
+        global: zod.object({
+            rank: zod.number(),
+            topPct: zod.number(),
+            race7d: zod.number(),
+            participants: zod.number().optional(),
+            updatedAt: zod.number().optional(),
+            shareToken: zod.string().optional(),
+        }).nullable(),
     });
 }
 /** 持久化状态（MadrankState）在 seed/restore 前必须通过 stateSchema（zod）。 */
@@ -199,13 +208,13 @@ function buildDefinition() {
         apply: ((state, event) => applyEvent(state, event)),
         wire: {
             viewSchema: viewSchema,
-            view: ((state) => buildView(state)),
+            view: ((state) => ({ ...buildView(state), global: storeHolder.globalView })),
         },
         stateVersion: STATE_VERSION,
     };
 }
 export function apply(ctx, config) {
-    debugLog(dataDir(), `apply v0.5.1 config=${JSON.stringify(readSettings(config))}`);
+    debugLog(dataDir(), `apply v0.5.2 config=${JSON.stringify(readSettings(config))}`);
     const log = ctx.logger ?? {
         info: (m) => console.info('[madrank]', m),
         warn: (m, ...rest) => console.warn('[madrank]', m, ...rest),

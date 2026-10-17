@@ -256,7 +256,7 @@ TypeScript · React · Zod · Vitest.
 
 Local usage projection, 7/30-day history, top models, streak, Quick View, Settings and the daily aggregated sync protocol are implemented; golden-case and real-traffic reconciliation and DSH compatibility verification pass.
 
-**v0.5.1 targets DSH 0.2.x** (the new plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The Host syncs daily aggregates to MADRank and publishes the accepted race record through a dedicated client-visible projection (`madrankRank`), so the live rank card and share card work on the new model without a custom Remote API.
+**v0.5.2 targets DSH 0.2.x** (the new plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The Host syncs daily aggregates to MADRank and publishes the accepted race record through a dedicated client-visible projection (`madrankRank`), so the live rank card and share card work on the new model without a custom Remote API.
 
 ---
 

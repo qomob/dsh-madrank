@@ -128,7 +128,7 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     const fixture = (typeof window !== 'undefined' ? window.__MADRANK_CARD_DATA__ : undefined) ?? {}
     // global / raceUrl 组装走纯函数（优先级：fixture > settings mirror > null）
     const sv = scopeValue(scope)
-    const { global, raceUrl } = composeGlobalView(fixture, sv)
+    const { global, raceUrl } = composeGlobalView(fixture, sv, base)
     const snap: CardSnapshot = { ...base, ...fixture, global }
     // 模态容器大：卡片用 lg 变体（解锁 320px 固定宽 + 双栏中段）。
     // v0.2：删除通道等配置动作收进 settings-panel.ts，卡片只负责「看」。

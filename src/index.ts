@@ -183,6 +183,15 @@ function buildViewSchema() {
     totalRequests: zod.number().int().nonnegative(),
     totalPrimaryTokens: zod.number().int().nonnegative(),
     totalCachedTokens: zod.number().int().nonnegative(),
+    // 排名镜像随 usage 视图一起下发（客户端列表已证明可达的通道）
+    global: zod.object({
+      rank: zod.number(),
+      topPct: zod.number(),
+      race7d: zod.number(),
+      participants: zod.number().optional(),
+      updatedAt: zod.number().optional(),
+      shareToken: zod.string().optional(),
+    }).nullable(),
   })
 }
 
@@ -220,14 +229,14 @@ function buildDefinition(): ProjectionDefinitionLike {
       applyEvent(state, event)) as never,
     wire: {
       viewSchema: viewSchema as unknown as NonNullable<ProjectionDefinitionLike['wire']>['viewSchema'],
-      view: ((state: MadrankState) => buildView(state)) as never,
+      view: ((state: MadrankState) => ({ ...buildView(state), global: storeHolder.globalView })) as never,
     },
     stateVersion: STATE_VERSION,
   }
 }
 
 export function apply(ctx: CtxLike & Record<string, unknown>, config?: unknown): void {
-  debugLog(dataDir(), `apply v0.5.1 config=${JSON.stringify(readSettings(config))}`)
+  debugLog(dataDir(), `apply v0.5.2 config=${JSON.stringify(readSettings(config))}`)
   const log = ctx.logger ?? {
     info: (m: string) => console.info('[madrank]', m),
     warn: (m: string, ...rest: unknown[]) => console.warn('[madrank]', m, ...rest),

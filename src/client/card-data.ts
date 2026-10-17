@@ -155,9 +155,15 @@ export function decodeRankView(raw: unknown): CardGlobal | null {
 export function composeGlobalView(
   fixture: Partial<CardSnapshot> | undefined,
   scope: { enabled?: boolean; endpoint?: string; global?: CardGlobal | null } | undefined,
+  feed?: { global?: CardGlobal | null } | undefined,
 ): { global: CardGlobal | null; raceUrl: string } {
+  // 优先级：fixture（测试/调试显式覆盖）> 投影 feed（v0.5 排名通道）> settings mirror（旧通道）
   return {
-    global: fixture?.global !== undefined ? fixture.global ?? null : scope?.global ?? null,
+    global: fixture?.global !== undefined
+      ? fixture.global ?? null
+      : feed?.global !== undefined && feed.global !== null
+        ? feed.global
+        : scope?.global ?? null,
     raceUrl: raceUrlFromEndpoint(scope?.endpoint),
   }
 }

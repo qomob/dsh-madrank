@@ -55,15 +55,18 @@ const windowFixture = (): Partial<import('./card-html.ts').CardSnapshot> =>
 function snapshotFrom(byId: unknown, nowMs: number): Partial<import('./card-html.ts').CardSnapshot> {
   try {
     const d = cardDataFromList({ byId } as never, nowMs)
-    // 排名投影：安装级值，每个会话 cell 携带同一份；任取首个有效值。
+    // 排名镜像：优先随 madrankUsage 视图下发（已验证可达的通道），
+    // 兼容独立 madrankRank 投影（新版 list 若携带则同源）。
     let global: import('../global-rank.ts').CardGlobal | null = null
     if (byId !== null && typeof byId === 'object') {
       for (const entry of Object.values(byId as Record<string, { projectionValues?: Record<string, unknown> }>)) {
-        const raw = entry?.projectionValues?.[RANK_PROJECTION_KEY]
-        if (raw !== undefined) {
-          global = decodeRankView(raw)
-          if (global !== null) break
-        }
+        const pv = entry?.projectionValues
+        if (pv === undefined) continue
+        const usage = (pv as Record<string, unknown>)['madrankUsage'] as Record<string, unknown> | undefined
+        global = decodeRankView(usage?.['global'])
+        if (global !== null) break
+        global = decodeRankView((pv as Record<string, unknown>)[RANK_PROJECTION_KEY])
+        if (global !== null) break
       }
     }
     return {
@@ -82,6 +85,7 @@ function snapshotFrom(byId: unknown, nowMs: number): Partial<import('./card-html
 
 const selectById = (state: unknown): unknown => (state as { byId?: unknown } | undefined)?.byId
 
+
 /**
  * slot 组件包装：用 slot 标准 props 的 useSessions 读取会话投影，推进共享
  * dataTick（两处 UI 同一快照），并把 settings scope 注入原组件。
@@ -93,7 +97,8 @@ function withSessionData(Comp: unknown, scope: SettingsScopeLike): unknown {
       ? (useSessions as (selector: unknown) => unknown)(selectById)
       : undefined
     useEffect(() => {
-      dataTick.set({ ...snapshotFrom(byId, Date.now()), ...windowFixture() })
+      const snap = { ...snapshotFrom(byId, Date.now()), ...windowFixture() }
+      dataTick.set(snap)
     }, [byId])
     return createElement(
       Comp as never,
