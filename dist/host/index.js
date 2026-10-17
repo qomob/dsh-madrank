@@ -214,7 +214,7 @@ function buildDefinition() {
     };
 }
 export function apply(ctx, config) {
-    debugLog(dataDir(), `apply v0.5.2 config=${JSON.stringify(readSettings(config))}`);
+    debugLog(dataDir(), `apply v0.5.3 config=${JSON.stringify(readSettings(config))}`);
     const log = ctx.logger ?? {
         info: (m) => console.info('[madrank]', m),
         warn: (m, ...rest) => console.warn('[madrank]', m, ...rest),

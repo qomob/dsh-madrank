@@ -22,7 +22,7 @@ export function yesterdayYmd(now = Date.now()) {
  */
 export const USAGE_SCHEMA_VERSION = 1;
 /** 随 payload 上报的插件版本（服务端 source_client_version 列，可选字段、截 64 字符）。 */
-export const USAGE_CLIENT_VERSION = '0.4.0';
+export const USAGE_CLIENT_VERSION = '0.5.3';
 /**
  * 组装某一天的 payload（远端 schema 的唯一来源）。
  * ⚠️ wire 形状以服务端 lib/usage/protocol.ts 冻结契约为准：days[].models 是

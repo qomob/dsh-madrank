@@ -1134,7 +1134,7 @@ window.__ModuleLoader__.load({
 		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
 		*/
 		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-		const PLUGIN_VERSION = "0.5.2";
+		const PLUGIN_VERSION = "0.5.3";
 		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 		const SITE_FALLBACK = "https://madrank.ai";
 		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
@@ -1350,7 +1350,7 @@ window.__ModuleLoader__.load({
 				v: tr(lang, "sDaysCount", { n: recordDays })
 			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "sPluginName"),
-				v: "v0.5.2"
+				v: "v0.5.3"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sStatus"),
 				v: "● " + tr(lang, "sPluginEnabled")

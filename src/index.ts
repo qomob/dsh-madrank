@@ -236,7 +236,7 @@ function buildDefinition(): ProjectionDefinitionLike {
 }
 
 export function apply(ctx: CtxLike & Record<string, unknown>, config?: unknown): void {
-  debugLog(dataDir(), `apply v0.5.2 config=${JSON.stringify(readSettings(config))}`)
+  debugLog(dataDir(), `apply v0.5.3 config=${JSON.stringify(readSettings(config))}`)
   const log = ctx.logger ?? {
     info: (m: string) => console.info('[madrank]', m),
     warn: (m: string, ...rest: unknown[]) => console.warn('[madrank]', m, ...rest),
