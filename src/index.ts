@@ -1,9 +1,10 @@
 /**
  * dsh-madrank — MADRank Usage 插件（Host 半侧入口）。
  *
- * 集成方式（cordis.yml 一行启用）：
- *   - name: '/absolute/path/to/dsh-madrank/src/index.ts'
- *   - name: 'dsh-madrank'                      # 发布为 npm 包后
+ * 集成方式（cordis.patch.yml 一行挂载）：
+ *   - insert:
+ *       - name: '@qomob/dsh-madrank'
+ * 入口：dist/host/index.js（编译产物；源码 src/index.ts 仅供开发/类型检查）。
  *
  * 本插件贡献：
  * 1. madrankUsage 投影单元 —— framework 驱动的纯 fold（唯一事件语义源）

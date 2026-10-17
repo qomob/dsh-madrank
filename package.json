@@ -4,9 +4,9 @@
   "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/host/index.js",
   "exports": {
-    ".": "./src/index.ts",
+    ".": "./dist/host/index.js",
     "./client": "./dist/client.js",
     "./package.json": "./package.json"
   },
@@ -33,17 +33,19 @@
     "tokens"
   ],
   "engines": {
-    "node": ">=22.18"
+    "node": ">=20"
   },
   "scripts": {
     "build:client": "node tools/build-client.mjs",
+    "build:host": "tsc -p tsconfig.build.json",
+    "build": "npm run build:host && npm run build:client",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "reconcile": "node --experimental-strip-types tools/reconcile-cli.ts",
     "preview": "node --experimental-strip-types tools/build-card-preview.ts",
     "reconcile:fixture": "node --experimental-strip-types tools/reconcile-cli.ts tests/fixtures/real-world/usage-events.jsonl",
     "verify:dsh": "node --experimental-strip-types tools/verify-compat.ts",
-    "prepack": "npm run build:client",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "dependencies": {
@@ -57,6 +59,7 @@
     }
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "happy-dom": "^20.12.0",
     "react-dom": "^19.2.8",

@@ -145,7 +145,7 @@ MATCH ✓
 > 1. 包已在该 profile 中**声明并安装**（`package.json` + `node_modules`，通过 `dsh plugin … add`）；
 > 2. 该 profile **挂载**了它 —— `cordis.patch.yml` 里的 insert 条目。
 >
-> 需要 Node **≥ 22.18**（Host 半侧是 TypeScript 源码、靠类型剥离直载；桌面 app 自带 Node 24，天然满足）。
+> 发布包里 Host 半侧已**编译为 JavaScript**（`dist/host/`）、浏览器半侧已预构建（`dist/client.js`）——消费方无需任何构建步骤。（Node 拒绝对 `node_modules` 内的 TypeScript 做类型剥离，所以安装包的 `main` 不能指向 `.ts` 文件。）
 
 ### 方式一：桌面 app 内置插件管理器（app 内推荐）
 
@@ -181,11 +181,11 @@ dsh plugin --profile desktop add @qomob/dsh-madrank
 
 ```bash
 git clone https://github.com/qomob/dsh-madrank.git
-cd dsh-madrank && npm install && npm run build:client
+cd dsh-madrank && npm install && npm run build
 dsh plugin --profile desktop add 'link:/absolute/path/to/dsh-madrank'
 ```
 
-注意使用 `link:` 而不是 `file:`（`file:` 会复制实体、不再随源码同步）。之后同样补挂载条目并重启。
+注意使用 `link:` 而不是 `file:`（`file:` 会复制实体、不再随源码同步）。`link:` 方式下 profile 加载的是已构建的 `dist/`，源码修改后需 `npm run build` 再重启。之后同样补挂载条目并重启。
 
 ### 验证
 
@@ -200,6 +200,7 @@ dsh plugin --profile desktop add 'link:/absolute/path/to/dsh-madrank'
 | 装了别的插件后本插件消失 | profile `package.json` 里未声明依赖（重跑 `dsh plugin … add`） |
 | 缺「settings ns registered」这行 | profile 没有完整重启，或只刷新了页面 |
 | UI/文案比本 README 旧 | 装到了 npm 上的旧版本 —— 改用 GitHub 源，或升级（`dsh plugin --profile desktop add @qomob/dsh-madrank@latest`） |
+| 已安装、已启用，但运行状态显示「未运行」（v0.3.6 及更早） | 该版本把 `main` 指向了 `src/index.ts`，而 Node 不能剥离 `node_modules` 下的 TS。升级到 **v0.4.0+**（Host 已编译为 `dist/host/`） |
 
 ---
 

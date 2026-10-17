@@ -108,7 +108,7 @@ The suite covers streaming replacement, waterfall tool traffic, cross-midnight b
 > 1. the package is **declared/installed** in the profile (`package.json` + `node_modules`, via `dsh plugin … add`);
 > 2. the profile **mounts** it — a `cordis.patch.yml` insert entry.
 >
-> Requires Node **≥ 22.18** (the Host half is TypeScript loaded directly via type stripping; the desktop app ships Node 24, so it is satisfied out of the box).
+> The published package ships the Host half **compiled to JavaScript** (`dist/host/`) and the browser half prebuilt (`dist/client.js`) — consumers need no build step. (Node refuses to type-strip TypeScript inside `node_modules`, which is why installed packages must not point `main` at a `.ts` file.)
 
 ### Option 1: Desktop app's built-in plugin manager (recommended for the app)
 
@@ -144,11 +144,11 @@ And restart DSH.
 
 ```bash
 git clone https://github.com/qomob/dsh-madrank.git
-cd dsh-madrank && npm install && npm run build:client
+cd dsh-madrank && npm install && npm run build
 dsh plugin --profile desktop add 'link:/absolute/path/to/dsh-madrank'
 ```
 
-Use `link:` not `file:` (`file:` copies the package and breaks source sync). Add the mount entry and restart as above.
+Use `link:` not `file:` (`file:` copies the package and breaks source sync). With `link:` the profile loads the built `dist/` — run `npm run build` after source edits, then restart. Add the mount entry and restart as above.
 
 ### Verify
 
@@ -163,6 +163,7 @@ Use `link:` not `file:` (`file:` copies the package and breaks source sync). Add
 | Plugin gone after an unrelated install | Dependency not declared in the profile `package.json` (re-run `dsh plugin … add`) |
 | "settings ns registered" missing | Profile never restarted, or the app was only reloaded |
 | Older UI/copy than this README | npm install of an older version — use the GitHub spec, or upgrade (`dsh plugin --profile desktop add @qomob/dsh-madrank@latest`) |
+| Installed, enabled, but runtime says not running (v0.3.6 or earlier) | That release pointed `main` at `src/index.ts`; Node cannot type-strip TS under `node_modules`. Upgrade to **v0.4.0+**, which ships compiled `dist/host/` JS |
 
 ---
 
