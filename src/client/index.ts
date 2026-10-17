@@ -1,25 +1,35 @@
 /// <reference lib="dom" />
 
 /**
- * client/index.ts — 浏览器半侧装配（方案 A + 方案 A'）:
- * slots.inject + sidebar.footer.action 注册；数据 = sessions 投影 feed +
- * settings mirror（全球排名唯一传输缝，decodeSettingsSection 窄化）；
- * window.__MADRANK_CARD_DATA__ 仅作 fixture 覆盖口（测试/调试）。
+ * client/index.ts — 浏览器半侧装配（新版 Harness 客户端模型）。
+ *
+ * 新版契约（DSH 0.2.x）：
+ * - 设置：`ctx.configForms.get(entryId)` 取 Host 插件配置表单（快照含
+ *   status/value/base/user/revision/writable；set/unset 写回 profile patch）。
+ * - 数据：不再有 sessions.list feed；会话投影通过 slot 标准 props 的
+ *   `useSessions(selector)` hook 读取（byId[id].projectionValues）。
+ * - 槽位：settings.section（配置页）+ sidebar.footer.action（Quick View 入口）；
+ *   旧版 settings.plugin.item 已移除。
+ * - window.__MADRANK_CARD_DATA__ 仅作 fixture 覆盖口（测试/调试）。
  */
 
-import { createElement } from 'react'
-import type { LocaleFaceLike } from './card-html.ts'
-import { cardDataFromList, decodeSettingsSection } from './card-data.ts'
-import { CardErrorBoundary, dataTick, MadrankSettingsTab, registerFooterEntry, setActiveLocale } from './panel.ts'
+import { createElement, useEffect } from 'react'
+import type { LocaleFaceLike, SettingsScopeLike, SlotsLike } from './card-html.ts'
+import { cardDataFromList, decodeRankView } from './card-data.ts'
+import { CardErrorBoundary, dataTick, ensurePanelStyles, MadrankFooterCell, MadrankSettingsTab, setActiveLocale } from './panel.ts'
 import { MadrankSettingsPanel } from './settings-panel.ts'
 
-export const SETTINGS_NS = 'madrank-usage'
+/** 必须与 src/rank-projection.ts 的 RANK_PROJECTION_KEY 一致。 */
+const RANK_PROJECTION_KEY = 'madrankRank'
 
-/** 官方数据缝隙见上；'sessions' 为 ISessions 标准 feed。 */
-export const inject = ['slots', 'locale', 'settingsScope', 'sessions']
+/** Loader entry id（必须与 cordis.patch.yml 的 insert.id 一致）。 */
+export const MADRANK_ENTRY_ID = 'madrank'
+
+/** 新版客户端依赖的服务面。 */
+export const inject = ['slots', 'locale', 'configForms']
 
 // 纯标记层与类型统一从这里出门（预览工具 / 外部消费者兼容面）
-export { renderCardHtml, SETTINGS_NS as CARD_SETTINGS_NS } from './card-html.ts'
+export { renderCardHtml } from './card-html.ts'
 export type {
   CardSnapshot,
   CardModelRow,
@@ -27,39 +37,42 @@ export type {
   SlotsLike,
 } from './card-html.ts'
 export type { CardGlobal } from '../global-rank.ts'
-export { decodeSettingsSection } from './card-data.ts'
 export type { SettingsSectionValue } from './card-data.ts'
 export { MadrankFooterCell, MadrankSettingsTab } from './panel.ts'
 export { MadrankSettingsPanel, PLUGIN_VERSION } from './settings-panel.ts'
 
-interface SessionsFaceLike {
-  list: { getSnapshot(): unknown; subscribe(fn: () => void): () => void }
-}
-
 export interface ClientCtxLike {
-  slots?: import('./card-html.ts').SlotsLike
-  settingsScope?: {
-    bind(opts: {
-      namespace: string
-      /** 窄化 wire 段；提供后跳过宿主 schemastery 默认校验（global 注入依赖此口）。 */
-      decode?: (section: unknown) => unknown
-    }): import('./card-html.ts').SettingsScopeLike
-  }
-  sessions?: SessionsFaceLike
+  slots?: SlotsLike
+  /** 新版设置表单服务：entryId → ConfigFormController（形状与 SettingsScopeLike 兼容）。 */
+  configForms?: { get(id: string): SettingsScopeLike }
   locale?: LocaleFaceLike
 }
 
-function pullFrom(feed: SessionsFaceLike['list'] | undefined): Record<string, unknown> {
-  if (feed === undefined) return {}
+const windowFixture = (): Partial<import('./card-html.ts').CardSnapshot> =>
+  typeof window !== 'undefined' ? (window.__MADRANK_CARD_DATA__ ?? {}) : {}
+
+/** 从会话列表（byId[id].projectionValues）聚合出卡片快照。 */
+function snapshotFrom(byId: unknown, nowMs: number): Partial<import('./card-html.ts').CardSnapshot> {
   try {
-    const d = cardDataFromList(feed.getSnapshot() as never, Date.now())
+    const d = cardDataFromList({ byId } as never, nowMs)
+    // 排名投影：安装级值，每个会话 cell 携带同一份；任取首个有效值。
+    let global: import('../global-rank.ts').CardGlobal | null = null
+    if (byId !== null && typeof byId === 'object') {
+      for (const entry of Object.values(byId as Record<string, { projectionValues?: Record<string, unknown> }>)) {
+        const raw = entry?.projectionValues?.[RANK_PROJECTION_KEY]
+        if (raw !== undefined) {
+          global = decodeRankView(raw)
+          if (global !== null) break
+        }
+      }
+    }
     return {
       today: d.today,
       topModels: d.topModels,
       streakDays: d.streak,
       last7Days: d.last7,
       history: d.history,
-      global: null,
+      global,
     }
   } catch (e) {
     console.warn('[madrank] projection feed error', e)
@@ -67,62 +80,82 @@ function pullFrom(feed: SessionsFaceLike['list'] | undefined): Record<string, un
   }
 }
 
-const windowFixture = (): Partial<import('./card-html.ts').CardSnapshot> =>
-  typeof window !== 'undefined' ? (window.__MADRANK_CARD_DATA__ ?? {}) : {}
+const selectById = (state: unknown): unknown => (state as { byId?: unknown } | undefined)?.byId
+
+/**
+ * slot 组件包装：用 slot 标准 props 的 useSessions 读取会话投影，推进共享
+ * dataTick（两处 UI 同一快照），并把 settings scope 注入原组件。
+ */
+function withSessionData(Comp: unknown, scope: SettingsScopeLike): unknown {
+  return function SlotEntry(props: Record<string, unknown>) {
+    const useSessions = props['useSessions']
+    const byId = typeof useSessions === 'function'
+      ? (useSessions as (selector: unknown) => unknown)(selectById)
+      : undefined
+    useEffect(() => {
+      dataTick.set({ ...snapshotFrom(byId, Date.now()), ...windowFixture() })
+    }, [byId])
+    return createElement(
+      Comp as never,
+      { ...props, scope } as never,
+    )
+  }
+}
 
 export function apply(ctx: ClientCtxLike): void {
-  const scope = ctx.settingsScope?.bind({ namespace: SETTINGS_NS, decode: decodeSettingsSection })
+  // 侧栏脚部样式必须先注入（ghost 按钮同款：透明底/hover 底色/rail 圆形）
+  ensurePanelStyles()
   const slots = ctx.slots
-  if (!scope || !slots) return
-
-  // ── 数据面：订阅投影 feed；任何变更推进 dataTick（两处 UI 共享）──
-  const feed = ctx.sessions?.list
-  const refresh = (): void => {
-    dataTick.set({ ...pullFrom(feed), ...windowFixture() })
+  const scope = ctx.configForms?.get(MADRANK_ENTRY_ID)
+  if (!slots || !scope) {
+    console.warn('[madrank] slots/configForms seam absent — client half idle')
+    return
   }
-  refresh()
-  feed?.subscribe(refresh)
 
-  // ── 语言：跟随宿主系统设置（ctx.locale.active；切换经 subscribe 推动整体重渲染）──
-  // inject 声明过的 'locale' 面在此消费；缺席/异常一律回退 en（官方 FALLBACK_LOCALE 语义）。
+  // ── 语言：跟随宿主 ctx.locale（切换推动整体重渲染）──
   const locale = ctx.locale
   const safeActive = (): string | undefined => {
     try { return locale?.getSnapshot?.()?.active } catch { return undefined }
   }
   setActiveLocale(safeActive())
   try {
-    locale?.subscribe?.(() => { setActiveLocale(safeActive()); refresh() })
+    locale?.subscribe?.(() => { setActiveLocale(safeActive()); dataTick.set(dataTick.get()) })
   } catch { /* isolated */ }
 
-  // 1) Settings 插件配置分区（插件页内的本插件配置卡）。
-  //    官方 cookbook（adding-a-settings-card.md）：settings.plugin.item 是 keyed
-  //    槽、键 = 命名空间 —— Plugins 页按宿主已服务的命名空间派发，键对上即自动
-  //    配对（旧键 madrank.usage.card 永不落入该派发）。keyed 条目不声明 order。
-  slots.inject('settings.plugin.item', () => {
-    slots.register({
-      name: 'settings.plugin.item',
-      key: SETTINGS_NS,
-    }, () => createElement(CardErrorBoundary, null, createElement(MadrankSettingsPanel, { scope })))
-  })
-
-  // 2) Settings 主导航顶级分区（同「桌面设置 / Agent 预设」的 settings.section 槽：
-  //    宿主 settings-general 用 slots.entries('settings.section') 生成导航行，
-  //    renderSlot("settings.section", { close }, { only: id }) 渲染分区页；
-  //    label 经 resolveSlotLabel 解析，string | () => string 皆可。
-  //    既有 order：general=0 / models=10 / plugins=15 / agent-presets=20 → MADRank 收尾）
+  // 1) Settings 主导航分区（MADRank 配置页）。
   slots.inject('settings.section', () => {
     slots.register(
       {
         name: 'settings.section',
-        id: 'madrank-usage',
+        id: MADRANK_ENTRY_ID,
         order: 30,
         label: 'MADRank',
       },
-      () => createElement(CardErrorBoundary, null,
-        createElement(MadrankSettingsTab, { scope })),
+      withSessionData(
+        (props: { scope: SettingsScopeLike }) =>
+          createElement(CardErrorBoundary, null, createElement(MadrankSettingsTab, props)),
+        scope,
+      ),
     )
   })
 
-  // 3) 侧栏脚部动作（Settings 旁；点击锚定展开同一张卡）
-  registerFooterEntry(slots, scope)
+  // 2) 侧栏脚部动作（Quick View 入口，点击展开同一张卡）。
+  slots.inject('sidebar.footer.action', () => {
+    slots.register(
+      {
+        name: 'sidebar.footer.action',
+        id: MADRANK_ENTRY_ID,
+        order: 40,
+        label: 'MADRank',
+      },
+      withSessionData(
+        (props: { scope: SettingsScopeLike }) =>
+          createElement(CardErrorBoundary, null, createElement(MadrankFooterCell, props)),
+        scope,
+      ),
+    )
+  })
 }
+
+export { MadrankSettingsPanel as SettingsPanel } from './settings-panel.ts'
+void createElement // keep import shape stable for bundlers

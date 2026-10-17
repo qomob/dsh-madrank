@@ -1,53 +1,61 @@
 /**
- * settings-schema.ts — madrank-usage 命名空间的官方 schemastery 契约。
+ * settings-schema.ts — 插件配置（新版 Harness 的 `Config` 约定）。
  *
- * 依据官方 cookbook docs/cookbook/adding-a-settings-card.md 的最佳实践：
- * - 命名空间是 Host 与浏览器半侧的接合键，只拼一次、两边同写一份；
- * - schema 必须是 schemastery `z<T>`（可调用 + 自带 toJSON），
- *   宿主 resolve/describe 都以该对象为唯一来源 —— 不再需要 zod 可调用
- *   适配器与手写 toJSON 图（旧实现 uid/refs 双面 hack）。
- *
- * 命令字段（deleteRequested / clearLocalRequested）按官方 mutate/update 语义建模：
- * 宿主 tick 消费后回写 0；客户端只读 value 中字段的「存在与否 + 值」。
+ * 新版 DSH（0.2.x）不再有「设置命名空间注册」：插件导出 schemastery `Config`，
+ * 用户通过 Settings → 插件页编辑其中的 `.volatile()` 字段（写入 profile patch，
+ * 运行中热更新，无需重启）。字段读取方式见 readSettings()：
+ * volatile 字段解析为冻结引用 `{ get() }`，普通字段保持原值。
  */
 
 import z from '@deepseek-ai/schemastery'
 
-export const SETTINGS_NAMESPACE = 'madrank-usage'
+/** Loader entry id（与 cordis.patch.yml 的 insert.id 一致；客户端 configForms 用它取表单）。 */
+export const MADRANK_ENTRY_ID = 'madrank'
 
 /** 官方 ingest 端点（服务端做 Community Ranking 校验）。 */
 export const INGEST_ENDPOINT_DEFAULT = 'https://madrank.ai/api/usage/ingest'
 
-/** 解析后配置形状（不含宿主 resolve 注入的镜像字段 global/epochs）。 */
-export interface MadrankUsageSettings {
+/** 配置字段（全部 volatile：可在设置页即时修改并热更新）。 */
+export const Config = z.object({
   /** 加入全球榜必须显式开启；默认完全离线。 */
-  enabled: boolean
+  enabled: z.boolean().default(false).volatile(),
   /** MADRank ingest 端点。 */
+  endpoint: z.string().default(INGEST_ENDPOINT_DEFAULT).volatile(),
+  /** 自动同步每日聚合（默认 true；enabled=false 时同步轮根本不启动）。 */
+  autoSync: z.boolean().default(true).volatile(),
+})
+
+/** 解析后的配置形状（readSettings 的返回）。 */
+export interface MadrankUsageSettings {
+  enabled: boolean
   endpoint: string
-  /** 自动同步每日聚合（默认 true；enabled=false 时宿主根本不启动同步轮）。 */
   autoSync: boolean
-  /** 删除通道命令字段（设置面板两步确认后写入；宿主 tick 执行后回写 0）。 */
-  deleteRequested?: number
-  /** 清除本地数据命令字段（只清本机统计；宿主 tick 执行后回写 0）。 */
-  clearLocalRequested?: number
 }
 
-/**
- * 命名空间 schema：schemastery `z.object`，官方可调用约定原样满足
- * （`schema(merged)` 解析、`schema.toJSON()` 序列化）。字段缺省自动
- * 补默认值；未知字段被剥离（与旧 zod strip 语义一致）。
- */
-export const MadrankUsageSettingsSchema = z.object({
-  enabled: z.boolean().default(false),
-  endpoint: z.string().default(INGEST_ENDPOINT_DEFAULT),
-  autoSync: z.boolean().default(true),
-  deleteRequested: z.natural().default(0),
-  clearLocalRequested: z.natural().default(0),
-}) as z<MadrankUsageSettings>
+/** volatile 字段的冻结引用（schemastery createVolatile 的对外面）。 */
+interface VolatileRef<T> {
+  get(): T
+}
 
-/** resolve 镜像注入后的完整 wire 形状（宿主 resolve 出口；客户端 decode 宽容）。 */
-export interface MadrankResolvedSettings extends MadrankUsageSettings {
-  global: unknown
-  deletedEpoch: number
-  clearedEpoch: number
+function readRef<T>(value: unknown, fallback: T): T {
+  if (value !== null && typeof value === 'object' && typeof (value as VolatileRef<T>).get === 'function') {
+    try {
+      const current = (value as VolatileRef<T>).get()
+      return current === undefined || current === null ? fallback : current
+    } catch {
+      return fallback
+    }
+  }
+  return value === undefined || value === null ? fallback : value as T
+}
+
+/** 从 loader 传入的 config（可能是 volatile 引用或普通对象）读出最新设置。 */
+export function readSettings(raw: unknown): MadrankUsageSettings {
+  const cfg = (raw ?? {}) as Record<string, unknown>
+  const enabled = readRef<boolean>(cfg['enabled'], false)
+  return {
+    enabled: enabled === true,
+    endpoint: readRef<string>(cfg['endpoint'], INGEST_ENDPOINT_DEFAULT),
+    autoSync: readRef<boolean>(cfg['autoSync'], true) !== false,
+  }
 }

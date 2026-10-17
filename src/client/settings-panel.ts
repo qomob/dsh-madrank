@@ -27,7 +27,7 @@ import type { SettingsSectionValue } from './card-data.ts'
 import type { SettingsScopeLike } from './card-html.ts'
 
 /** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-export const PLUGIN_VERSION = '0.4.0'
+export const PLUGIN_VERSION = '0.5.1'
 
 /** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 const SITE_FALLBACK = 'https://madrank.ai'
@@ -50,12 +50,7 @@ function scopeValue(scope: SettingsScopeLike | undefined): SettingsSectionValue 
     return {
       enabled: v.enabled === true,
       endpoint: typeof v.endpoint === 'string' ? v.endpoint : undefined,
-      global: v.global ?? null,
       autoSync: v.autoSync !== false,
-      deleteRequested: typeof v.deleteRequested === 'number' ? v.deleteRequested : 0,
-      deletedEpoch: typeof v.deletedEpoch === 'number' ? v.deletedEpoch : 0,
-      clearLocalRequested: typeof v.clearLocalRequested === 'number' ? v.clearLocalRequested : 0,
-      clearedEpoch: typeof v.clearedEpoch === 'number' ? v.clearedEpoch : 0,
     }
   } catch {
     return undefined
@@ -275,19 +270,7 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
     ? snap.history.filter((d) => d.primaryTokens > 0).length
     : 0
 
-  // 最近同步：排名记录的采集时间即「最近一次成功同步」（宿主 onRace 捕获缝）
-  const lastSyncText = sv?.global?.updatedAt !== undefined && sv.global.updatedAt > 0
-    ? fmtLocalDateTime(sv.global.updatedAt) + ' · ' +
-      tr(lang, 'race7dShort', { v: fmtTokensCompact(sv.global.race7d) })
-    : tr(lang, 'sNeverSynced')
-
-  // 命令通道（pending = 请求时间戳新于完成时间戳；done 只作一次性反馈展示）
-  const delPending = (sv?.deleteRequested ?? 0) > (sv?.deletedEpoch ?? 0) && (sv?.deleteRequested ?? 0) > 0
-  const delDone = !delPending && (sv?.deletedEpoch ?? 0) > 0 &&
-    (sv?.deleteRequested ?? 0) > 0 && (sv?.deleteRequested ?? 0) <= (sv?.deletedEpoch ?? 0)
-  const clrPending = (sv?.clearLocalRequested ?? 0) > (sv?.clearedEpoch ?? 0) && (sv?.clearLocalRequested ?? 0) > 0
-  const clrDone = !clrPending && (sv?.clearedEpoch ?? 0) > 0 &&
-    (sv?.clearLocalRequested ?? 0) > 0 && (sv?.clearLocalRequested ?? 0) <= (sv?.clearedEpoch ?? 0)
+  // 新版设置通道只承载 Config 字段；排名/同步历史由服务器侧维护。
 
   return createElement('div', { className: 'mkp', 'data-madrank-settings': 'true' },
     // ── 头部：MADRank + 定位副标题 + 真实状态 pill ──
@@ -333,7 +316,6 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
             void Promise.resolve(scope.set('autoSync', next)).catch(() => {})
           },
         }),
-        createElement(Kv, { k: tr(lang, 'sLastSync'), v: enabled ? lastSyncText : tr(lang, 'sNeverSynced') }),
       ),
     ),
 
@@ -365,20 +347,6 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
             target: '_blank', rel: 'noreferrer noopener',
           }, tr(lang, 'sPrivacyMore'), ' \u2192'),
         ),
-        createElement('p', { className: 'mkp-note' }, tr(lang, 'sDeleteNote')),
-        createElement('div', { className: 'mkp-actions' },
-          createElement(ConfirmButton, {
-            cmd: 'delete',
-            label: tr(lang, 'deleteBtn'),
-            confirmLabel: tr(lang, 'deleteConfirmBtn'),
-            busy: delPending,
-            onConfirm: () => {
-              void Promise.resolve(scope.set('deleteRequested', Date.now())).catch(() => {})
-            },
-          }),
-        ),
-        delDone ? createElement('p', { className: 'mkp-feedback', 'data-madrank-feedback': 'delete' },
-          tr(lang, 'deleteDone')) : null,
       ),
     ),
 
@@ -389,20 +357,6 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
         createElement(Kv, { k: tr(lang, 'last7'), v: fmtTokensCompact(total7) + ' tokens' }),
         createElement(Kv, { k: tr(lang, 'sDataRecords'), v: tr(lang, 'sDaysCount', { n: recordDays }) }),
         createElement('p', { className: 'mkp-note' }, tr(lang, 'sDataNote')),
-        createElement('p', { className: 'mkp-note' }, tr(lang, 'sClearNote')),
-        createElement('div', { className: 'mkp-actions' },
-          createElement(ConfirmButton, {
-            cmd: 'clear',
-            label: tr(lang, 'sClearBtn'),
-            confirmLabel: tr(lang, 'sClearConfirmBtn'),
-            busy: clrPending,
-            onConfirm: () => {
-              void Promise.resolve(scope.set('clearLocalRequested', Date.now())).catch(() => {})
-            },
-          }),
-        ),
-        clrDone ? createElement('p', { className: 'mkp-feedback', 'data-madrank-feedback': 'clear' },
-          tr(lang, 'sClearDone')) : null,
       ),
     ),
 
@@ -412,7 +366,6 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
       createElement('div', { className: 'mkp-group' },
         createElement(Kv, { k: tr(lang, 'sPluginName'), v: 'v' + PLUGIN_VERSION }),
         createElement(Kv, { k: tr(lang, 'sStatus'), v: '\u25CF ' + tr(lang, 'sPluginEnabled') }),
-        createElement(Kv, { k: tr(lang, 'sLastSync'), v: lastSyncText }),
         createElement('div', { className: 'mkp-actions' },
           createElement('a', {
             className: 'mkp-link',

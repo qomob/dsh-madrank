@@ -112,7 +112,7 @@ The suite covers streaming replacement, waterfall tool traffic, cross-midnight b
 
 ### Option 1: Desktop app's built-in plugin manager (recommended for the app)
 
-Open **Settings → Plugins** and install from one of:
+Open the sidebar **Plugins** page (the plugin manager; *Settings → Plugins* is a read-only list) and install from one of:
 
 * **GitHub** — repository `qomob/dsh-madrank`
 * **npm** — package `@qomob/dsh-madrank`
@@ -135,7 +135,8 @@ Then add the mount entry to `~/.dsh/profiles/<profile>/cordis.patch.yml`:
 
 ```yaml
 - insert:
-    - name: '@qomob/dsh-madrank'
+    - id: madrank
+      name: '@qomob/dsh-madrank'
 ```
 
 And restart DSH.
@@ -253,7 +254,9 @@ TypeScript · React · Zod · Vitest.
 
 ## Project Status
 
-Local usage projection, 7/30-day history, top models, streak, Quick View, Settings, local clearing, remote deletion, daily aggregated sync protocol, golden-case and real-traffic reconciliation and DSH compatibility verification are all implemented. Global ranking is live against the MADRank ingest service, and the **share card is fully working**: dedicated link, server-rendered social card image and bilingual share text, with numbers auto-refreshed from the server before sharing. Current version: v0.3.6.
+Local usage projection, 7/30-day history, top models, streak, Quick View, Settings and the daily aggregated sync protocol are implemented; golden-case and real-traffic reconciliation and DSH compatibility verification pass.
+
+**v0.5.0 targets DSH 0.2.x** (the new plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The global ranking keeps syncing from the Host half, but the live rank card and share card are temporarily hidden in this release while the custom Remote API integration is rebuilt.
 
 ---
 

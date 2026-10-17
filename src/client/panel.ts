@@ -336,7 +336,7 @@ const PANEL_CSS = [
 ].join('')
 
 /** 注入一次（data-plugin-css 去重；与 card-html ensureCardStyles 同范式）。 */
-function ensurePanelStyles(): void {
+export function ensurePanelStyles(): void {
   if (typeof document === 'undefined') return
   const tagId = 'madrank-usage/' + PANEL_STYLE_ID
   if (document.querySelector('style[data-plugin-css="' + JSON.stringify(tagId).slice(1, -1) + '"]')) return

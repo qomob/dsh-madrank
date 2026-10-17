@@ -1,0 +1,4 @@
+- insert:
+    - id: madrank
+      name: '@qomob/dsh-madrank'
+      config: {}

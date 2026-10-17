@@ -1,6 +1,6 @@
 {
   "name": "@qomob/dsh-madrank",
-  "version": "0.4.0",
+  "version": "0.5.1",
   "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
   "license": "MIT",
   "type": "module",
@@ -8,11 +8,15 @@
   "exports": {
     ".": "./dist/host/index.js",
     "./client": "./dist/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
-    "src",
     "dist",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
     "README.md",
     "README.zh-CN.md",
     "LICENSE"
@@ -36,26 +40,31 @@
     "node": ">=20"
   },
   "scripts": {
-    "build:client": "node tools/build-client.mjs",
-    "build:host": "tsc -p tsconfig.build.json",
     "build": "npm run build:host && npm run build:client",
+    "build:host": "tsc -p tsconfig.build.json",
+    "build:client": "node tools/build-client.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "reconcile": "node --experimental-strip-types tools/reconcile-cli.ts",
-    "preview": "node --experimental-strip-types tools/build-card-preview.ts",
     "reconcile:fixture": "node --experimental-strip-types tools/reconcile-cli.ts tests/fixtures/real-world/usage-events.jsonl",
     "verify:dsh": "node --experimental-strip-types tools/verify-compat.ts",
     "prepack": "npm run build",
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.2",
+    "@deepseek-ai/schemastery": "^3.18.5",
     "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
-      "platform": "web"
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "devDependencies": {

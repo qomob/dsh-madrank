@@ -8,7 +8,7 @@
  * 2. 「参与全球排名」是真开关：off → set('enabled', true)；on → unset('enabled')。
  * 3. 「自动同步」依赖排名开启：off 时禁用 + hint；on 时可切（set('autoSync', …)）。
  * 4. 隐私是固定数据定义：仅同步清单 / 绝不同步清单，不做「可选上传」开关。
- * 5. 删除/清除走两步确认命令缝（deleteRequested / clearLocalRequested）。
+ * 5. 新版设置通道只承载 Config 字段（enabled/endpoint/autoSync）。
  * 6. 头部 pill = 真实状态（on 实心 / off 空心）。
  */
 /* eslint-disable */
@@ -30,12 +30,7 @@ function makeScope(
   const full: SettingsSectionValue = {
     enabled: false,
     endpoint: 'https://madrank.ai/api/usage/ingest',
-    global: null,
     autoSync: true,
-    deleteRequested: 0,
-    deletedEpoch: 0,
-    clearLocalRequested: 0,
-    clearedEpoch: 0,
     ...value,
   }
   return {
@@ -148,49 +143,10 @@ describe('Settings → MADRank 配置面板（v0.2 交互规范）', () => {
     expect(privSection.querySelector('[role="switch"]')).toBeNull()
   })
 
-  it('删除已同步数据：两步确认（arm → confirm 才写 deleteRequested）', () => {
-    const setSpy = vi.fn()
-    mount(createElement(MadrankSettingsPanel, { scope: makeScope({}, setSpy) }))
-    const del = host.querySelector('[data-madrank-cmd="delete"]') as HTMLButtonElement
-    expect(del).not.toBeNull()
-    act(() => { del.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
-    expect(setSpy).not.toHaveBeenCalled()                 // 第一步只 arm
-    expect(del.getAttribute('data-armed')).toBe('true')
-    expect(del.textContent).toContain('Confirm delete')
-    act(() => { del.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
-    expect(setSpy).toHaveBeenCalledTimes(1)
-    expect(setSpy.mock.calls[0]![0]).toBe('deleteRequested')
-    expect(typeof setSpy.mock.calls[0]![1]).toBe('number') // 时间戳命令字段
-  })
-
-  it('命令状态机：pending 禁用按钮；done 显示完成反馈行', () => {
-    mount(createElement(MadrankSettingsPanel, {
-      scope: makeScope({ deleteRequested: Date.now(), deletedEpoch: 0 }),
-    }))
-    const del = host.querySelector('[data-madrank-cmd="delete"]') as HTMLButtonElement
-    expect(del.disabled).toBe(true)
-    act(() => { root?.unmount() })
-    mount(createElement(MadrankSettingsPanel, {
-      scope: makeScope({ deleteRequested: 100, deletedEpoch: 200 }),
-    }))
-    expect(document.querySelector('[data-madrank-feedback="delete"]')?.textContent)
-      .toContain('deleted from MADRank')
-  })
-
   it('本地数据：最近 7 天汇总来自 dataTick 快照（与 Quick View 同一数据缝）', () => {
     mount(createElement(MadrankSettingsPanel, { scope: makeScope({}) }))
     const text = document.body.textContent ?? ''
     expect(text).toContain('3.18M tokens') // 1.00M + 2.18M
     expect(text).toContain('Local records')
-  })
-
-  it('最近同步：取排名记录 updatedAt；未同步 = 诚实空态', () => {
-    mount(createElement(MadrankSettingsPanel, {
-      scope: makeScope({ enabled: true, global: { rank: 1, topPct: 12.5, race7d: 9_500_000, updatedAt: Date.UTC(2026, 8, 3, 8, 2) } }),
-    }))
-    expect(document.body.textContent).toContain('7-day total 9.50M')
-    act(() => { root?.unmount() })
-    mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true }) }))
-    expect(document.body.textContent).toContain('Not synced yet')
   })
 })

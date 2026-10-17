@@ -1,15 +1,15 @@
 /**
  * card-data.ts — 浏览器半侧的数据装配（纯函数，可全量单测）。
  *
- * 数据源是官方缝隙：`ctx.sessions.list`（ISessions 标准 feed）的每行
- * SessionSummary.projectionValues 里携带宿主折算好的 madrankUsage view。
+ * 数据源是官方缝隙：slot 标准 props 的 useSessions 钩子读取会话列表，
+ * 每行 SessionSummary.projectionValues 携带宿主折算好的 madrankUsage view。
  * 跨会话求和得到机器级 TODAY —— 会话日志互不相交，直接相加无重复。
  * 所有聚合口径复用 src/stats.ts / src/caliber.ts（本包内导入合规）。
  */
 
 import { dayDetail, HISTORY_WINDOW_DAYS, lastNDays, streakDays, topModels, todayCard } from '../stats.ts'
 import type { DayAggregate } from '../stats.ts'
-import { cardGlobalFromRecord, parseGlobalRecord, raceUrlFromEndpoint } from '../global-rank.ts'
+import { raceUrlFromEndpoint } from '../global-rank.ts'
 import type { CardGlobal } from '../global-rank.ts'
 import type { CardDayEntry, CardSnapshot } from './card-html.ts'
 import type { DayView, ModelBuckets, UsageView } from '../fold.ts'
@@ -114,69 +114,36 @@ export function cardDataFromList(
 }
 
 /**
- * settings mirror 值的完整客户端形状（v0.2）：
- * 排名（global）+ 偏好（autoSync）+ 命令通道（delete/clear 的请求/完成时间戳）。
- * 命令字段由宿主 resolve 注入 deletedEpoch/clearedEpoch、raw 层透传请求字段；
- * 此前 decode 只保留三字段，删除通道状态到不了 UI（面板完成态永不点亮），本次修复。
+ * 设置表单值的客户端形状（新版 configForms 快照的 value）：
+ * 只包含插件 Config 的字段（enabled / endpoint / autoSync）。
+ * 排名镜像已不再经设置通道传输（新版无 resolve 注入缝），global 恒为 null。
  */
 export interface SettingsSectionValue {
   enabled: boolean
   endpoint: string | undefined
-  global: CardGlobal | null
   /** 自动同步每日用量（默认 true；参与排名关闭时宿主根本不启动同步轮）。 */
   autoSync: boolean
-  deleteRequested: number
-  deletedEpoch: number
-  clearLocalRequested: number
-  clearedEpoch: number
 }
 
 /**
- * settings wire 段窄化（SettingsScopeSpec.decode）。
- * 显式 decode 使客户端跳过宿主 schemastery 默认校验、原样消费 describe 的
- * value——这是排名走 settings mirror 的前提（resolve 注入的 global 不是
- * schema 字段，默认校验不认识它）。坏形状一律降级：enabled=false、global=null。
+ * 解码宿主 madrankRank 投影值（安装级排名镜像；坏形状 → null）。
+ * 宿主 wire.viewSchema 已校验，这里只做宽容结构转换。
  */
-export function decodeSettingsSection(section: unknown): SettingsSectionValue | undefined {
-  if (typeof section !== 'object' || section === null || Array.isArray(section)) return undefined
-  const s = section as Record<string, unknown>
-  const numOr0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
-  return {
-    enabled: s['enabled'] === true,
-    endpoint: typeof s['endpoint'] === 'string' ? s['endpoint'] : undefined,
-    global: decodeWireGlobal(s['global']),
-    autoSync: s['autoSync'] !== false,
-    deleteRequested: numOr0(s['deleteRequested']),
-    deletedEpoch: numOr0(s['deletedEpoch']),
-    clearLocalRequested: numOr0(s['clearLocalRequested']),
-    clearedEpoch: numOr0(s['clearedEpoch']),
-  }
-}
-
-/**
- * wire 段 global 的双形状解码（2026-09-01 第六坑）。
- * 宿主 resolve 注入的已是 CardGlobal（race7d；index.ts callable 出口），
- * 而 parseGlobalRecord 只认 GlobalRankRecord（total/endpoint）——单测用
- * 错误形状喂 decode 曾致全绿假象，真实 rank 首次点亮当日实锤。
- */
-function decodeWireGlobal(raw: unknown): CardGlobal | null {
-  if (typeof raw !== 'object' || raw === null) return null
+export function decodeRankView(raw: unknown): CardGlobal | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   const r = raw as Record<string, unknown>
   const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
-  if (num(r['rank']) && num(r['topPct']) && num(r['race7d'])) {
-    return {
-      rank: r['rank'],
-      topPct: r['topPct'],
-      race7d: r['race7d'],
-      participants: num(r['participants']) ? r['participants'] : undefined,
-      updatedAt: num(r['updatedAt']) ? r['updatedAt'] : undefined,
-      // 分享令牌透传(2026-09-04 实锤坑:本分支曾整字段丢弃 → 分享按钮永不出现)
-      shareToken: typeof r['shareToken'] === 'string' && r['shareToken'].length > 0
-        ? r['shareToken']
-        : undefined,
-    }
+  if (!num(r['rank']) || !num(r['topPct']) || !num(r['race7d'])) return null
+  return {
+    rank: r['rank'],
+    topPct: r['topPct'],
+    race7d: r['race7d'],
+    participants: num(r['participants']) ? r['participants'] : undefined,
+    updatedAt: num(r['updatedAt']) ? r['updatedAt'] : undefined,
+    shareToken: typeof r['shareToken'] === 'string' && r['shareToken'].length > 0
+      ? r['shareToken']
+      : undefined,
   }
-  return cardGlobalFromRecord(parseGlobalRecord(raw))
 }
 
 /**

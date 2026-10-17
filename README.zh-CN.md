@@ -149,12 +149,14 @@ MATCH ✓
 
 ### 方式一：桌面 app 内置插件管理器（app 内推荐）
 
-打开 **设置 → 插件（Plugins）**，从以下任一来源安装：
+打开侧栏 **插件（Plugins）** 页（插件管理器；*设置 → 插件* 为只读列表），从以下任一来源安装：
 
 * **GitHub** —— 仓库 `qomob/dsh-madrank`
 * **npm** —— 包 `@qomob/dsh-madrank`
 
 然后**完整退出并重开 app**（profile 组合只在启动时加载，刷新页面不够）。若管理器未自动挂载，补上下面的挂载条目后再重启。
+
+> **v0.5.0 适配 DSH 0.2.x**（新版插件模型：`Config` + `configForms` + slot props 会话数据）。旧版 DSH 上浏览器半侧会等待激活 —— 请先升级 DSH。全球排名仍由 Host 半侧同步，但本版的实时排名卡与分享卡暂时隐藏，待自定义 Remote API 适配完成后恢复。
 
 ### 方式二：命令行（适用于任意 profile：`desktop`、`web`…）
 
@@ -172,7 +174,8 @@ dsh plugin --profile desktop add @qomob/dsh-madrank
 
 ```yaml
 - insert:
-    - name: '@qomob/dsh-madrank'
+    - id: madrank
+      name: '@qomob/dsh-madrank'
 ```
 
 重启 DSH。

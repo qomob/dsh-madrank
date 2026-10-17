@@ -168,40 +168,6 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/global-rank.ts
-		const num = (v) => typeof v === "number" && Number.isFinite(v);
-		const optStr = (v) => typeof v === "string" ? v : void 0;
-		/** 宽容解析（settings wire 段里的 global；宿主 resolve 注入，非持久化字段）。 */
-		function parseGlobalRecord(raw) {
-			if (typeof raw !== "object" || raw === null) return null;
-			const r = raw;
-			if (!num(r["rank"]) || !num(r["total"]) || !num(r["topPct"]) || !num(r["participants"])) return null;
-			if (typeof r["endpoint"] !== "string" || !num(r["updatedAt"])) return null;
-			return {
-				rank: r["rank"],
-				total: r["total"],
-				topPct: r["topPct"],
-				participants: r["participants"],
-				endpoint: r["endpoint"],
-				updatedAt: r["updatedAt"],
-				windowStart: optStr(r["windowStart"]),
-				windowEnd: optStr(r["windowEnd"]),
-				shareToken: optStr(r["shareToken"])
-			};
-		}
-		/** 记录 → 卡片形状（离线快照与客户端 decode 共用同一映射，卡片 UI 零改动）。 */
-		function cardGlobalFromRecord(rec) {
-			if (rec === null || rec === void 0) return null;
-			const parsed = parseGlobalRecord(rec);
-			if (parsed === null) return null;
-			return {
-				rank: parsed.rank,
-				topPct: parsed.topPct,
-				race7d: parsed.total,
-				participants: parsed.participants,
-				updatedAt: parsed.updatedAt,
-				shareToken: parsed.shareToken
-			};
-		}
 		/** View race 链接：从 endpoint 派生 origin（self-host 支持）；任何异常回退官方主站。 */
 		function raceUrlFromEndpoint(endpoint) {
 			try {
@@ -216,8 +182,8 @@ window.__ModuleLoader__.load({
 		/**
 		* card-data.ts — 浏览器半侧的数据装配（纯函数，可全量单测）。
 		*
-		* 数据源是官方缝隙：`ctx.sessions.list`（ISessions 标准 feed）的每行
-		* SessionSummary.projectionValues 里携带宿主折算好的 madrankUsage view。
+		* 数据源是官方缝隙：slot 标准 props 的 useSessions 钩子读取会话列表，
+		* 每行 SessionSummary.projectionValues 携带宿主折算好的 madrankUsage view。
 		* 跨会话求和得到机器级 TODAY —— 会话日志互不相交，直接相加无重复。
 		* 所有聚合口径复用 src/stats.ts / src/caliber.ts（本包内导入合规）。
 		*/
@@ -285,37 +251,15 @@ window.__ModuleLoader__.load({
 			};
 		}
 		/**
-		* settings wire 段窄化（SettingsScopeSpec.decode）。
-		* 显式 decode 使客户端跳过宿主 schemastery 默认校验、原样消费 describe 的
-		* value——这是排名走 settings mirror 的前提（resolve 注入的 global 不是
-		* schema 字段，默认校验不认识它）。坏形状一律降级：enabled=false、global=null。
+		* 解码宿主 madrankRank 投影值（安装级排名镜像；坏形状 → null）。
+		* 宿主 wire.viewSchema 已校验，这里只做宽容结构转换。
 		*/
-		function decodeSettingsSection(section) {
-			if (typeof section !== "object" || section === null || Array.isArray(section)) return void 0;
-			const s = section;
-			const numOr0 = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
-			return {
-				enabled: s["enabled"] === true,
-				endpoint: typeof s["endpoint"] === "string" ? s["endpoint"] : void 0,
-				global: decodeWireGlobal(s["global"]),
-				autoSync: s["autoSync"] !== false,
-				deleteRequested: numOr0(s["deleteRequested"]),
-				deletedEpoch: numOr0(s["deletedEpoch"]),
-				clearLocalRequested: numOr0(s["clearLocalRequested"]),
-				clearedEpoch: numOr0(s["clearedEpoch"])
-			};
-		}
-		/**
-		* wire 段 global 的双形状解码（2026-09-01 第六坑）。
-		* 宿主 resolve 注入的已是 CardGlobal（race7d；index.ts callable 出口），
-		* 而 parseGlobalRecord 只认 GlobalRankRecord（total/endpoint）——单测用
-		* 错误形状喂 decode 曾致全绿假象，真实 rank 首次点亮当日实锤。
-		*/
-		function decodeWireGlobal(raw) {
-			if (typeof raw !== "object" || raw === null) return null;
+		function decodeRankView(raw) {
+			if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
 			const r = raw;
 			const num = (v) => typeof v === "number" && Number.isFinite(v);
-			if (num(r["rank"]) && num(r["topPct"]) && num(r["race7d"])) return {
+			if (!num(r["rank"]) || !num(r["topPct"]) || !num(r["race7d"])) return null;
+			return {
 				rank: r["rank"],
 				topPct: r["topPct"],
 				race7d: r["race7d"],
@@ -323,7 +267,6 @@ window.__ModuleLoader__.load({
 				updatedAt: num(r["updatedAt"]) ? r["updatedAt"] : void 0,
 				shareToken: typeof r["shareToken"] === "string" && r["shareToken"].length > 0 ? r["shareToken"] : void 0
 			};
-			return cardGlobalFromRecord(parseGlobalRecord(raw));
 		}
 		/**
 		* 卡片 global / View race 链接组装（优先级锁定）：
@@ -603,7 +546,6 @@ window.__ModuleLoader__.load({
 		*   - 文案双语（i18n.ts 单一词典），语言跟随宿主 ctx.locale
 		* 口径注释：Primary = uncached input + output；缓存单列 "N cached ⓘ"（hover 出口径说明）。
 		*****************************************************************************/
-		const SETTINGS_NS = "madrank-usage";
 		/** 安全读取 enabled；scope 未就绪/形状异常时一律 false（离线默认）。 */
 		function scopeEnabled(scope) {
 			try {
@@ -1183,7 +1125,7 @@ window.__ModuleLoader__.load({
 		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
 		*/
 		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-		const PLUGIN_VERSION = "0.4.0";
+		const PLUGIN_VERSION = "0.5.1";
 		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 		const SITE_FALLBACK = "https://madrank.ai";
 		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
@@ -1203,12 +1145,7 @@ window.__ModuleLoader__.load({
 				return {
 					enabled: v.enabled === true,
 					endpoint: typeof v.endpoint === "string" ? v.endpoint : void 0,
-					global: v.global ?? null,
-					autoSync: v.autoSync !== false,
-					deleteRequested: typeof v.deleteRequested === "number" ? v.deleteRequested : 0,
-					deletedEpoch: typeof v.deletedEpoch === "number" ? v.deletedEpoch : 0,
-					clearLocalRequested: typeof v.clearLocalRequested === "number" ? v.clearLocalRequested : 0,
-					clearedEpoch: typeof v.clearedEpoch === "number" ? v.clearedEpoch : 0
+					autoSync: v.autoSync !== false
 				};
 			} catch {
 				return;
@@ -1325,37 +1262,6 @@ window.__ModuleLoader__.load({
 		function Kv(props) {
 			return (0, react.createElement)("div", { className: "mkp-kv" }, (0, react.createElement)("span", null, props.k), (0, react.createElement)("b", null, props.v));
 		}
-		/**
-		* 两步确认按钮（v0.2 安全语法：第一次点 = 进入确认态改文案；第二次点 = 真执行）。
-		* busy（命令执行中）时禁用；完成反馈由调用方以 feedback 行呈现。
-		*/
-		function ConfirmButton(props) {
-			const [armed, setArmed] = (0, react.useState)(false);
-			const text = props.busy ? props.label + "…" : armed ? props.confirmLabel : props.label;
-			return (0, react.createElement)("button", {
-				type: "button",
-				className: "mkp-btn",
-				"data-armed": armed && !props.busy ? "true" : "false",
-				"data-madrank-cmd": props.cmd,
-				disabled: props.busy,
-				onClick: () => {
-					if (props.busy) return;
-					if (armed) {
-						setArmed(false);
-						props.onConfirm();
-						return;
-					}
-					setArmed(true);
-				}
-			}, text);
-		}
-		/** 本地时间 「YYYY-MM-DD HH:mm」（最近同步时间戳；无效值回退 '—'）。 */
-		function fmtLocalDateTime(ms) {
-			if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "—";
-			const d = new Date(ms);
-			const p = (n) => String(n).padStart(2, "0");
-			return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
-		}
 		/** 紧凑 token 数（与卡片 fmtTokens 同口径；本地副本避免引 card-html 渲染层）。 */
 		function fmtTokensCompact(n) {
 			if (!Number.isFinite(n) || n <= 0) return "0";
@@ -1376,11 +1282,6 @@ window.__ModuleLoader__.load({
 			const snap = dataTick.get();
 			const total7 = (Array.isArray(snap.last7Days) ? snap.last7Days : []).reduce((a, d) => a + (d.primaryTokens > 0 ? d.primaryTokens : 0), 0);
 			const recordDays = Array.isArray(snap.history) ? snap.history.filter((d) => d.primaryTokens > 0).length : 0;
-			const lastSyncText = sv?.global?.updatedAt !== void 0 && sv.global.updatedAt > 0 ? fmtLocalDateTime(sv.global.updatedAt) + " · " + tr(lang, "race7dShort", { v: fmtTokensCompact(sv.global.race7d) }) : tr(lang, "sNeverSynced");
-			const delPending = (sv?.deleteRequested ?? 0) > (sv?.deletedEpoch ?? 0) && (sv?.deleteRequested ?? 0) > 0;
-			const delDone = !delPending && (sv?.deletedEpoch ?? 0) > 0 && (sv?.deleteRequested ?? 0) > 0 && (sv?.deleteRequested ?? 0) <= (sv?.deletedEpoch ?? 0);
-			const clrPending = (sv?.clearLocalRequested ?? 0) > (sv?.clearedEpoch ?? 0) && (sv?.clearLocalRequested ?? 0) > 0;
-			const clrDone = !clrPending && (sv?.clearedEpoch ?? 0) > 0 && (sv?.clearLocalRequested ?? 0) > 0 && (sv?.clearLocalRequested ?? 0) <= (sv?.clearedEpoch ?? 0);
 			return (0, react.createElement)("div", {
 				className: "mkp",
 				"data-madrank-settings": "true"
@@ -1410,9 +1311,6 @@ window.__ModuleLoader__.load({
 				onToggle: (next) => {
 					Promise.resolve(scope.set("autoSync", next)).catch(() => {});
 				}
-			}), (0, react.createElement)(Kv, {
-				k: tr(lang, "sLastSync"),
-				v: enabled ? lastSyncText : tr(lang, "sNeverSynced")
 			}))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPrivacy")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)("div", { className: "mkp-priv" }, (0, react.createElement)("div", null, (0, react.createElement)("div", { className: "mkp-ph" }, tr(lang, "sSyncedHead")), (0, react.createElement)("ul", null, [
 				"sItemTokens",
 				"sItemDates",
@@ -1435,43 +1333,18 @@ window.__ModuleLoader__.load({
 				href: siteUrl(sv?.endpoint, "/privacy"),
 				target: "_blank",
 				rel: "noreferrer noopener"
-			}, tr(lang, "sPrivacyMore"), " →")), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDeleteNote")), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)(ConfirmButton, {
-				cmd: "delete",
-				label: tr(lang, "deleteBtn"),
-				confirmLabel: tr(lang, "deleteConfirmBtn"),
-				busy: delPending,
-				onConfirm: () => {
-					Promise.resolve(scope.set("deleteRequested", Date.now())).catch(() => {});
-				}
-			})), delDone ? (0, react.createElement)("p", {
-				className: "mkp-feedback",
-				"data-madrank-feedback": "delete"
-			}, tr(lang, "deleteDone")) : null)), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sData")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
+			}, tr(lang, "sPrivacyMore"), " →")))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sData")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "last7"),
 				v: fmtTokensCompact(total7) + " tokens"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sDataRecords"),
 				v: tr(lang, "sDaysCount", { n: recordDays })
-			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sClearNote")), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)(ConfirmButton, {
-				cmd: "clear",
-				label: tr(lang, "sClearBtn"),
-				confirmLabel: tr(lang, "sClearConfirmBtn"),
-				busy: clrPending,
-				onConfirm: () => {
-					Promise.resolve(scope.set("clearLocalRequested", Date.now())).catch(() => {});
-				}
-			})), clrDone ? (0, react.createElement)("p", {
-				className: "mkp-feedback",
-				"data-madrank-feedback": "clear"
-			}, tr(lang, "sClearDone")) : null)), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
+			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "sPluginName"),
-				v: "v0.4.0"
+				v: "v0.5.1"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sStatus"),
 				v: "● " + tr(lang, "sPluginEnabled")
-			}), (0, react.createElement)(Kv, {
-				k: tr(lang, "sLastSync"),
-				v: lastSyncText
 			}), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)("a", {
 				className: "mkp-link",
 				href: siteUrl(sv?.endpoint, "/install"),
@@ -2079,70 +1952,85 @@ window.__ModuleLoader__.load({
 		function MadrankSettingsTab(props) {
 			return (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsPanel, { scope: props.scope }));
 		}
-		function registerFooterEntry(slots, scope) {
-			ensurePanelStyles();
-			slots.inject("sidebar.footer.action", () => {
-				slots.register({
-					name: "sidebar.footer.action",
-					id: "madrank-usage",
-					order: 40,
-					label: "MADRank Usage"
-				}, (cellProps) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankFooterCell, {
-					...cellProps,
-					scope
-				})));
-			});
-		}
 		//#endregion
 		//#region src/client/index.ts
 		/**
-		* client/index.ts — 浏览器半侧装配（方案 A + 方案 A'）:
-		* slots.inject + sidebar.footer.action 注册；数据 = sessions 投影 feed +
-		* settings mirror（全球排名唯一传输缝，decodeSettingsSection 窄化）；
-		* window.__MADRANK_CARD_DATA__ 仅作 fixture 覆盖口（测试/调试）。
+		* client/index.ts — 浏览器半侧装配（新版 Harness 客户端模型）。
+		*
+		* 新版契约（DSH 0.2.x）：
+		* - 设置：`ctx.configForms.get(entryId)` 取 Host 插件配置表单（快照含
+		*   status/value/base/user/revision/writable；set/unset 写回 profile patch）。
+		* - 数据：不再有 sessions.list feed；会话投影通过 slot 标准 props 的
+		*   `useSessions(selector)` hook 读取（byId[id].projectionValues）。
+		* - 槽位：settings.section（配置页）+ sidebar.footer.action（Quick View 入口）；
+		*   旧版 settings.plugin.item 已移除。
+		* - window.__MADRANK_CARD_DATA__ 仅作 fixture 覆盖口（测试/调试）。
 		*/
-		const SETTINGS_NS$1 = "madrank-usage";
-		/** 官方数据缝隙见上；'sessions' 为 ISessions 标准 feed。 */
+		/** 必须与 src/rank-projection.ts 的 RANK_PROJECTION_KEY 一致。 */
+		const RANK_PROJECTION_KEY = "madrankRank";
+		/** Loader entry id（必须与 cordis.patch.yml 的 insert.id 一致）。 */
+		const MADRANK_ENTRY_ID = "madrank";
+		/** 新版客户端依赖的服务面。 */
 		const inject = [
 			"slots",
 			"locale",
-			"settingsScope",
-			"sessions"
+			"configForms"
 		];
-		function pullFrom(feed) {
-			if (feed === void 0) return {};
+		const windowFixture = () => typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ ?? {} : {};
+		/** 从会话列表（byId[id].projectionValues）聚合出卡片快照。 */
+		function snapshotFrom(byId, nowMs) {
 			try {
-				const d = cardDataFromList(feed.getSnapshot(), Date.now());
+				const d = cardDataFromList({ byId }, nowMs);
+				let global = null;
+				if (byId !== null && typeof byId === "object") for (const entry of Object.values(byId)) {
+					const raw = entry?.projectionValues?.[RANK_PROJECTION_KEY];
+					if (raw !== void 0) {
+						global = decodeRankView(raw);
+						if (global !== null) break;
+					}
+				}
 				return {
 					today: d.today,
 					topModels: d.topModels,
 					streakDays: d.streak,
 					last7Days: d.last7,
 					history: d.history,
-					global: null
+					global
 				};
 			} catch (e) {
 				console.warn("[madrank] projection feed error", e);
 				return {};
 			}
 		}
-		const windowFixture = () => typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ ?? {} : {};
-		function apply(ctx) {
-			const scope = ctx.settingsScope?.bind({
-				namespace: SETTINGS_NS$1,
-				decode: decodeSettingsSection
-			});
-			const slots = ctx.slots;
-			if (!scope || !slots) return;
-			const feed = ctx.sessions?.list;
-			const refresh = () => {
-				dataTick.set({
-					...pullFrom(feed),
-					...windowFixture()
+		const selectById = (state) => state?.byId;
+		/**
+		* slot 组件包装：用 slot 标准 props 的 useSessions 读取会话投影，推进共享
+		* dataTick（两处 UI 同一快照），并把 settings scope 注入原组件。
+		*/
+		function withSessionData(Comp, scope) {
+			return function SlotEntry(props) {
+				const useSessions = props["useSessions"];
+				const byId = typeof useSessions === "function" ? useSessions(selectById) : void 0;
+				(0, react.useEffect)(() => {
+					dataTick.set({
+						...snapshotFrom(byId, Date.now()),
+						...windowFixture()
+					});
+				}, [byId]);
+				return (0, react.createElement)(Comp, {
+					...props,
+					scope
 				});
 			};
-			refresh();
-			feed?.subscribe(refresh);
+		}
+		function apply(ctx) {
+			ensurePanelStyles();
+			const slots = ctx.slots;
+			const scope = ctx.configForms?.get(MADRANK_ENTRY_ID);
+			if (!slots || !scope) {
+				console.warn("[madrank] slots/configForms seam absent — client half idle");
+				return;
+			}
 			const locale = ctx.locale;
 			const safeActive = () => {
 				try {
@@ -2155,34 +2043,34 @@ window.__ModuleLoader__.load({
 			try {
 				locale?.subscribe?.(() => {
 					setActiveLocale(safeActive());
-					refresh();
+					dataTick.set(dataTick.get());
 				});
 			} catch {}
-			slots.inject("settings.plugin.item", () => {
-				slots.register({
-					name: "settings.plugin.item",
-					key: SETTINGS_NS$1
-				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsPanel, { scope })));
-			});
 			slots.inject("settings.section", () => {
 				slots.register({
 					name: "settings.section",
-					id: "madrank-usage",
+					id: MADRANK_ENTRY_ID,
 					order: 30,
 					label: "MADRank"
-				}, () => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsTab, { scope })));
+				}, withSessionData((props) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsTab, props)), scope));
 			});
-			registerFooterEntry(slots, scope);
+			slots.inject("sidebar.footer.action", () => {
+				slots.register({
+					name: "sidebar.footer.action",
+					id: MADRANK_ENTRY_ID,
+					order: 40,
+					label: "MADRank"
+				}, withSessionData((props) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankFooterCell, props)), scope));
+			});
 		}
 		//#endregion
-		exports.CARD_SETTINGS_NS = SETTINGS_NS;
+		exports.MADRANK_ENTRY_ID = MADRANK_ENTRY_ID;
 		exports.MadrankFooterCell = MadrankFooterCell;
 		exports.MadrankSettingsPanel = MadrankSettingsPanel;
 		exports.MadrankSettingsTab = MadrankSettingsTab;
 		exports.PLUGIN_VERSION = PLUGIN_VERSION;
-		exports.SETTINGS_NS = SETTINGS_NS$1;
+		exports.SettingsPanel = MadrankSettingsPanel;
 		exports.apply = apply;
-		exports.decodeSettingsSection = decodeSettingsSection;
 		exports.inject = inject;
 		exports.renderCardHtml = renderCardHtml;
 		return module.exports;

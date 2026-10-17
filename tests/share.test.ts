@@ -71,21 +71,6 @@ describe('shareToken 贯穿 record → wire → card', () => {
     expect(cardGlobalFromRecord(rec)?.shareToken).toBe('u1234567890abcdef')
   })
 
-  it('decodeSettingsSection 不丢 shareToken(2026-09-04 实锤:曾致分享按钮永不出现)', async () => {
-    const { decodeSettingsSection } = await import('../src/client/card-data.ts')
-    const decoded = decodeSettingsSection({
-      enabled: true,
-      endpoint: 'https://madrank.ai/api/usage/ingest',
-      global: { rank: 1, topPct: 100, race7d: 2544157, participants: 1, shareToken: 'u1234567890abcdef' },
-    })
-    expect(decoded?.global?.shareToken).toBe('u1234567890abcdef')
-    // 无 token 的 wire 不凭空造一个
-    const noToken = decodeSettingsSection({
-      enabled: true,
-      global: { rank: 1, topPct: 100, race7d: 100, participants: 1 },
-    })
-    expect(noToken?.global?.shareToken).toBeUndefined()
-  })
 })
 
 describe('whoami', () => {
