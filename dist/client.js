@@ -202,10 +202,13 @@ window.__ModuleLoader__.load({
 			}
 			return out;
 		}
-		/** 跨会话求和。activeSeconds 取最大者（与 store 的保守口径一致）。 */
-		function mergeViews(views) {
+		/** 跨会话求和。activeSeconds 取最大者（与 store 的保守口径一致）。
+		*  clearedAtMs > 0 时，早于该 UTC 日的历史一律不计（「清除本地数据」语义）。 */
+		function mergeViews(views, clearedAtMs = 0) {
 			const agg = {};
+			const cutoff = clearedAtMs > 0 ? new Date(clearedAtMs).toISOString().slice(0, 10) : null;
 			for (const view of views) for (const [ymd, day] of Object.entries(view.days)) {
+				if (cutoff !== null && ymd < cutoff) continue;
 				const dst = agg[ymd] ??= {
 					models: {},
 					activeSeconds: 0
@@ -237,8 +240,8 @@ window.__ModuleLoader__.load({
 			}));
 		}
 		/** 列表快照 → 卡片展示所需的完整口径集（不含 global：本地版恒无排名）。 */
-		function cardDataFromList(snap, nowMs) {
-			const agg = mergeViews(extractViews(snap));
+		function cardDataFromList(snap, nowMs, clearedAtMs = 0) {
+			const agg = mergeViews(extractViews(snap), clearedAtMs);
 			return {
 				today: todayCard(agg, nowMs),
 				topModels: topModels(agg, new Date(nowMs).toISOString().slice(0, 10)),
@@ -286,209 +289,235 @@ window.__ModuleLoader__.load({
 		function resolveLang(raw) {
 			return typeof raw === "string" && raw.toLowerCase().startsWith("zh") ? "zh" : "en";
 		}
+		const en = {
+			pillLocal: "Global ranking off",
+			pillOn: "Global ranking on",
+			cardTitle: "MADRank",
+			cardSubtitle: "Your AI usage",
+			todayLabel: "TODAY · UNCACHED TOKENS",
+			todayEmpty: "TODAY",
+			noUsage: "No usage recorded yet. Numbers appear after your next AI turn.",
+			heroRequests: "<b>{n}</b> requests",
+			heroActive: "<b>{n}</b> active",
+			segIn: "{v} in",
+			segOut: "{v} out",
+			segCached: "{v} cached",
+			cachedTip: "Cached tokens are shown separately and are not included in your primary usage score.",
+			chipVs: "vs 7d avg",
+			chipStreak: "{n}-day streak",
+			mostUsed: "Most used",
+			last7: "Last 7 days",
+			last30: "Last 30 days",
+			seg7d: "7D",
+			seg30d: "30D",
+			segDay: "Day",
+			dayHeading: "{w} · {d}",
+			joinFine: "Optional: share <b>daily aggregates only</b> (token counts, model names). Never prompts, responses, or files. Off by default.",
+			joinCta: "Turn on global ranking",
+			leaveCta: "Leave global ranking",
+			notJoined: "Not participating",
+			yourRank: "Your global rank",
+			topChip: "TOP {x}%",
+			onlyParticipant: "Only participant",
+			race7dLabel: "Ranked · 7-day total",
+			race7dShort: "7-day total {v}",
+			activeDays7: "{n}/7 days",
+			heroSourceLocal: "LOCAL · LIVE",
+			rankServerAgo: "SERVER · {t}",
+			guardWindowNote: "The 7-day rank window covers finished UTC days only — today joins after the next sync.",
+			agoJustNow: "just now",
+			agoMin: "{n}m ago",
+			agoHour: "{n}h ago",
+			agoDay: "{n}d ago",
+			deleteBtn: "Delete synced data",
+			deleteConfirmBtn: "Confirm delete",
+			deletePending: "Deleting…",
+			deleteDone: "Synced data deleted from MADRank.",
+			shareFine: "One anonymous daily number; a random code stands for you; chats never leave your device.",
+			joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
+			viewRace: "View race",
+			shareCta: "Share rank",
+			shareModalTitle: "Share your rank",
+			shareClose: "Close",
+			shareCardAlt: "MADRank share card",
+			shareQrHint: "Card auto-generated · QR opens the live rank",
+			shareEditHint: "Text is editable — tweak it before copying",
+			shareCopyText: "Copy text",
+			shareCopyLink: "Copy link",
+			shareDownload: "Download card",
+			shareNative: "Share with image…",
+			shareX: "Share to X",
+			shareCopied: "Copied ✓",
+			shareCopyFailed: "Copy failed",
+			leave: "Leave",
+			footerUpdated: "Updated {t} UTC",
+			sRanking: "Global ranking",
+			sRankingToggle: "Participate in MADRank global ranking",
+			sRankingDesc: "When on, DSH anonymously syncs daily aggregated token usage to MADRank to generate your global ranking. Local statistics are unaffected, and you can turn it off anytime.",
+			sSync: "Data sync",
+			sSyncToggle: "Auto-sync daily usage",
+			sSyncDesc: "Once a day finishes (UTC), its aggregate data is synced automatically.",
+			sSyncOffHint: "Available when global ranking is on",
+			sLastSync: "Last sync",
+			sNeverSynced: "Not synced yet",
+			sPrivacy: "Privacy",
+			sPrivacyIntro: "MADRank only receives the aggregates required for ranking. Everything else never leaves this device.",
+			sSyncedHead: "Synced",
+			sNeverHead: "Never synced",
+			sItemTokens: "Token counts",
+			sItemDates: "Usage dates",
+			sItemModels: "Model names",
+			sItemChats: "Chats",
+			sItemPrompts: "Prompts",
+			sItemResponses: "Responses",
+			sItemFiles: "Files",
+			sItemKeys: "API keys",
+			sItemTools: "Tool arguments",
+			sPrivacyMore: "Privacy policy",
+			sDeleteNote: "Removes ranking data already submitted to MADRank. Local statistics on this device are not affected.",
+			sData: "Local data",
+			sDataRecords: "Local records",
+			sDaysCount: "{n} days",
+			sDataNote: "Usage statistics are stored only on this device and power the trends and the daily sync payload.",
+			sClearBtn: "Clear local data",
+			sClearConfirmBtn: "Confirm clear",
+			sClearPending: "Clearing…",
+			sClearDone: "Local records cleared.",
+			sClearNote: "Clears the local statistics on this device only. Ranking data already submitted to MADRank is not removed; active sessions accumulate again.",
+			sPlugin: "Plugin",
+			sPluginName: "MADRank DSH Plugin",
+			sStatus: "Status",
+			sPluginEnabled: "Enabled",
+			tabUsage: "AI usage & rank",
+			tabSettings: "Settings",
+			confirmJoinTitle: "Join the global ranking?",
+			confirmJoinBody: "Only daily aggregated token counts and model names are uploaded — never prompts, responses, files, or API keys. You can leave at any time.",
+			confirmLeaveTitle: "Leave the global ranking?",
+			confirmLeaveBody: "Uploads stop immediately. Your local usage statistics stay on this device and are not affected.",
+			confirmOk: "Confirm",
+			confirmCancel: "Cancel",
+			sMoveHint: "MADRank settings now live in the sidebar entry: MADRank → Settings.",
+			sInstallGuide: "Install guide"
+		};
+		/** zh 词典：键集与 en 完全一致（双语平衡）。 */
+		const zh = {
+			pillLocal: "全球排名已关闭",
+			pillOn: "全球排名已开启",
+			cardTitle: "MADRank",
+			cardSubtitle: "AI 用量与排名",
+			todayLabel: "今日 · 未缓存 Token",
+			todayEmpty: "今日",
+			noUsage: "还没有用量记录，下一次 AI 对话后就会出现数字。",
+			heroRequests: "<b>{n}</b> 次请求",
+			heroActive: "活跃 <b>{n}</b>",
+			segIn: "输入 {v}",
+			segOut: "输出 {v}",
+			segCached: "缓存 {v}",
+			cachedTip: "缓存 Token 单独展示，不计入你的主用量口径。",
+			chipVs: "vs 7日均值",
+			chipStreak: "连续 {n} 天",
+			mostUsed: "常用模型",
+			last7: "最近 7 天",
+			last30: "最近 30 天",
+			seg7d: "7天",
+			seg30d: "30天",
+			segDay: "单日",
+			dayHeading: "{w} · {d}",
+			joinFine: "可选：仅共享<b>每日聚合数字</b>（Token 数与模型名）。绝不上传提示词、回复或文件。默认关闭。",
+			joinCta: "开启全球排名",
+			leaveCta: "退出全球排名",
+			notJoined: "尚未参与",
+			yourRank: "你的全球排名",
+			topChip: "前 {x}%",
+			onlyParticipant: "当前唯一参与者",
+			race7dLabel: "计入全球排名 · 7 日总量",
+			race7dShort: "7 日总量 {v}",
+			activeDays7: "{n}/7 天",
+			heroSourceLocal: "本机 · 实时",
+			rankServerAgo: "服务器 · {t}",
+			guardWindowNote: "榜单 7 日窗口只统计已结束的 UTC 日 —— 今天的用量在下次同步后并入。",
+			agoJustNow: "刚刚",
+			agoMin: "{n} 分钟前",
+			agoHour: "{n} 小时前",
+			agoDay: "{n} 天前",
+			deleteBtn: "删除已同步数据",
+			deleteConfirmBtn: "确认删除",
+			deletePending: "删除中…",
+			deleteDone: "已从 MADRank 删除已同步数据。",
+			shareFine: "每天只上报一条匿名汇总数字；身份只是随机代号，不关联任何账号；聊天内容永不上传。",
+			joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
+			viewRace: "查看排名赛",
+			shareCta: "分享排名",
+			shareModalTitle: "分享你的排名",
+			shareClose: "关闭",
+			shareCardAlt: "MADRank 分享卡",
+			shareQrHint: "卡片自动生成 · 扫码直达实时榜",
+			shareEditHint: "文案可编辑，复制前可修改",
+			shareCopyText: "复制文案",
+			shareCopyLink: "复制链接",
+			shareDownload: "下载卡片",
+			shareNative: "带图分享…",
+			shareX: "分享到 X",
+			shareCopied: "已复制 ✓",
+			shareCopyFailed: "复制失败",
+			leave: "退出",
+			footerUpdated: "更新于 {t} UTC",
+			sRanking: "全球排名",
+			sRankingToggle: "参与 MADRank 全球排名",
+			sRankingDesc: "开启后，DSH 会将每日聚合 Token 用量匿名同步至 MADRank，用于生成全球排名。本地统计不受影响，可随时关闭。",
+			sSync: "数据同步",
+			sSyncToggle: "自动同步每日用量",
+			sSyncDesc: "每个 UTC 日结束后，自动同步当日聚合数据。",
+			sSyncOffHint: "参与全球排名后可用",
+			sLastSync: "最近同步",
+			sNeverSynced: "尚未同步",
+			sPrivacy: "隐私",
+			sPrivacyIntro: "MADRank 仅同步排名所需的聚合数据，其余数据永远不会离开这台设备。",
+			sSyncedHead: "仅同步",
+			sNeverHead: "绝不同步",
+			sItemTokens: "Token 用量",
+			sItemDates: "使用日期",
+			sItemModels: "模型标识",
+			sItemChats: "对话内容",
+			sItemPrompts: "提示词（Prompt）",
+			sItemResponses: "回复（Response）",
+			sItemFiles: "文件",
+			sItemKeys: "API Key",
+			sItemTools: "工具参数",
+			sPrivacyMore: "查看隐私说明",
+			sDeleteNote: "只删除已提交到 MADRank 的历史排名数据，不影响此设备上的本地统计。",
+			sData: "本地数据",
+			sDataRecords: "本地记录",
+			sDaysCount: "{n} 天",
+			sDataNote: "用量统计只保存在这台设备上，用于展示趋势和生成每日同步数据。",
+			sClearBtn: "清除本地数据",
+			sClearConfirmBtn: "确认清除",
+			sClearPending: "清除中…",
+			sClearDone: "本地统计记录已清除。",
+			sClearNote: "只清空此设备上的本地统计记录，不会删除已提交到 MADRank 的历史排名数据；进行中的会话会重新累计。",
+			sPlugin: "插件",
+			sPluginName: "MADRank DSH Plugin",
+			sStatus: "状态",
+			sPluginEnabled: "已启用",
+			tabUsage: "AI 用量与排名",
+			tabSettings: "功能设置",
+			confirmJoinTitle: "加入全球排名？",
+			confirmJoinBody: "只上传每日聚合的 token 数与模型名，绝不上传 Prompt、回复、文件或 API Key。你可以随时退出。",
+			confirmLeaveTitle: "退出全球排名？",
+			confirmLeaveBody: "将立即停止上传；本机用量统计保留在这台设备上，不受影响。",
+			confirmOk: "确认",
+			confirmCancel: "取消",
+			sMoveHint: "MADRank 的设置已移到侧栏入口：MADRank → 功能设置。",
+			sInstallGuide: "安装说明"
+		};
 		const DICTS = {
-			en: {
-				pillLocal: "Global ranking off",
-				pillOn: "Global ranking on",
-				cardTitle: "MADRank",
-				cardSubtitle: "Your AI usage",
-				todayLabel: "TODAY · UNCACHED TOKENS",
-				todayEmpty: "TODAY",
-				noUsage: "No usage recorded yet. Numbers appear after your next AI turn.",
-				heroRequests: "<b>{n}</b> requests",
-				heroActive: "<b>{n}</b> active",
-				segIn: "{v} in",
-				segOut: "{v} out",
-				segCached: "{v} cached",
-				cachedTip: "Cached tokens are shown separately and are not included in your primary usage score.",
-				chipVs: "vs 7d avg",
-				chipStreak: "{n}-day streak",
-				mostUsed: "Most used",
-				last7: "Last 7 days",
-				last30: "Last 30 days",
-				seg7d: "7D",
-				seg30d: "30D",
-				segDay: "Day",
-				dayHeading: "{w} · {d}",
-				joinFine: "Optional: share <b>daily aggregates only</b> (token counts, model names). Never prompts, responses, or files. Off by default.",
-				joinCta: "Turn on global ranking",
-				leaveCta: "Leave global ranking",
-				notJoined: "Not participating",
-				yourRank: "Your global rank",
-				topChip: "TOP {x}%",
-				onlyParticipant: "Only participant",
-				race7dLabel: "Ranked · 7-day total",
-				race7dShort: "7-day total {v}",
-				activeDays7: "{n}/7 days",
-				heroSourceLocal: "LOCAL · LIVE",
-				rankServerAgo: "SERVER · {t}",
-				guardWindowNote: "The 7-day rank window covers finished UTC days only — today joins after the next sync.",
-				agoJustNow: "just now",
-				agoMin: "{n}m ago",
-				agoHour: "{n}h ago",
-				agoDay: "{n}d ago",
-				deleteBtn: "Delete synced data",
-				deleteConfirmBtn: "Confirm delete",
-				deletePending: "Deleting…",
-				deleteDone: "Synced data deleted from MADRank.",
-				shareFine: "One anonymous daily number; a random code stands for you; chats never leave your device.",
-				joinedPending: "Joined! Your global rank appears after the first daily sync tonight.",
-				viewRace: "View race",
-				shareCta: "Share rank",
-				shareModalTitle: "Share your rank",
-				shareClose: "Close",
-				shareCardAlt: "MADRank share card",
-				shareQrHint: "Card auto-generated · QR opens the live rank",
-				shareEditHint: "Text is editable — tweak it before copying",
-				shareCopyText: "Copy text",
-				shareCopyLink: "Copy link",
-				shareDownload: "Download card",
-				shareNative: "Share with image…",
-				shareX: "Share to X",
-				shareCopied: "Copied ✓",
-				shareCopyFailed: "Copy failed",
-				leave: "Leave",
-				footerUpdated: "Updated {t} UTC",
-				sRanking: "Global ranking",
-				sRankingToggle: "Participate in MADRank global ranking",
-				sRankingDesc: "When on, DSH anonymously syncs daily aggregated token usage to MADRank to generate your global ranking. Local statistics are unaffected, and you can turn it off anytime.",
-				sSync: "Data sync",
-				sSyncToggle: "Auto-sync daily usage",
-				sSyncDesc: "Once a day finishes (UTC), its aggregate data is synced automatically.",
-				sSyncOffHint: "Available when global ranking is on",
-				sLastSync: "Last sync",
-				sNeverSynced: "Not synced yet",
-				sPrivacy: "Privacy",
-				sPrivacyIntro: "MADRank only receives the aggregates required for ranking. Everything else never leaves this device.",
-				sSyncedHead: "Synced",
-				sNeverHead: "Never synced",
-				sItemTokens: "Token counts",
-				sItemDates: "Usage dates",
-				sItemModels: "Model names",
-				sItemChats: "Chats",
-				sItemPrompts: "Prompts",
-				sItemResponses: "Responses",
-				sItemFiles: "Files",
-				sItemKeys: "API keys",
-				sItemTools: "Tool arguments",
-				sPrivacyMore: "Privacy policy",
-				sDeleteNote: "Removes ranking data already submitted to MADRank. Local statistics on this device are not affected.",
-				sData: "Local data",
-				sDataRecords: "Local records",
-				sDaysCount: "{n} days",
-				sDataNote: "Usage statistics are stored only on this device and power the trends and the daily sync payload.",
-				sClearBtn: "Clear local data",
-				sClearConfirmBtn: "Confirm clear",
-				sClearPending: "Clearing…",
-				sClearDone: "Local records cleared.",
-				sClearNote: "Clears the local statistics on this device only. Ranking data already submitted to MADRank is not removed; active sessions accumulate again.",
-				sPlugin: "Plugin",
-				sPluginName: "MADRank DSH Plugin",
-				sStatus: "Status",
-				sPluginEnabled: "Enabled",
-				sInstallGuide: "Install guide"
-			},
-			zh: {
-				pillLocal: "全球排名已关闭",
-				pillOn: "全球排名已开启",
-				cardTitle: "MADRank",
-				cardSubtitle: "AI 用量与排名",
-				todayLabel: "今日 · 未缓存 Token",
-				todayEmpty: "今日",
-				noUsage: "还没有用量记录，下一次 AI 对话后就会出现数字。",
-				heroRequests: "<b>{n}</b> 次请求",
-				heroActive: "活跃 <b>{n}</b>",
-				segIn: "输入 {v}",
-				segOut: "输出 {v}",
-				segCached: "缓存 {v}",
-				cachedTip: "缓存 Token 单独展示，不计入你的主用量口径。",
-				chipVs: "vs 7日均值",
-				chipStreak: "连续 {n} 天",
-				mostUsed: "常用模型",
-				last7: "最近 7 天",
-				last30: "最近 30 天",
-				seg7d: "7天",
-				seg30d: "30天",
-				segDay: "单日",
-				dayHeading: "{w} · {d}",
-				joinFine: "可选：仅共享<b>每日聚合数字</b>（Token 数与模型名）。绝不上传提示词、回复或文件。默认关闭。",
-				joinCta: "开启全球排名",
-				leaveCta: "退出全球排名",
-				notJoined: "尚未参与",
-				yourRank: "你的全球排名",
-				topChip: "前 {x}%",
-				onlyParticipant: "当前唯一参与者",
-				race7dLabel: "计入全球排名 · 7 日总量",
-				race7dShort: "7 日总量 {v}",
-				activeDays7: "{n}/7 天",
-				heroSourceLocal: "本机 · 实时",
-				rankServerAgo: "服务器 · {t}",
-				guardWindowNote: "榜单 7 日窗口只统计已结束的 UTC 日 —— 今天的用量在下次同步后并入。",
-				agoJustNow: "刚刚",
-				agoMin: "{n} 分钟前",
-				agoHour: "{n} 小时前",
-				agoDay: "{n} 天前",
-				deleteBtn: "删除已同步数据",
-				deleteConfirmBtn: "确认删除",
-				deletePending: "删除中…",
-				deleteDone: "已从 MADRank 删除已同步数据。",
-				shareFine: "每天只上报一条匿名汇总数字；身份只是随机代号，不关联任何账号；聊天内容永不上传。",
-				joinedPending: "已加入！今晚数据的首次匿名同步完成后，这里会显示你的全球排名。",
-				viewRace: "查看排名赛",
-				shareCta: "分享排名",
-				shareModalTitle: "分享你的排名",
-				shareClose: "关闭",
-				shareCardAlt: "MADRank 分享卡",
-				shareQrHint: "卡片自动生成 · 扫码直达实时榜",
-				shareEditHint: "文案可编辑，复制前可修改",
-				shareCopyText: "复制文案",
-				shareCopyLink: "复制链接",
-				shareDownload: "下载卡片",
-				shareNative: "带图分享…",
-				shareX: "分享到 X",
-				shareCopied: "已复制 ✓",
-				shareCopyFailed: "复制失败",
-				leave: "退出",
-				footerUpdated: "更新于 {t} UTC",
-				sRanking: "全球排名",
-				sRankingToggle: "参与 MADRank 全球排名",
-				sRankingDesc: "开启后，DSH 会将每日聚合 Token 用量匿名同步至 MADRank，用于生成全球排名。本地统计不受影响，可随时关闭。",
-				sSync: "数据同步",
-				sSyncToggle: "自动同步每日用量",
-				sSyncDesc: "每个 UTC 日结束后，自动同步当日聚合数据。",
-				sSyncOffHint: "参与全球排名后可用",
-				sLastSync: "最近同步",
-				sNeverSynced: "尚未同步",
-				sPrivacy: "隐私",
-				sPrivacyIntro: "MADRank 仅同步排名所需的聚合数据，其余数据永远不会离开这台设备。",
-				sSyncedHead: "仅同步",
-				sNeverHead: "绝不同步",
-				sItemTokens: "Token 用量",
-				sItemDates: "使用日期",
-				sItemModels: "模型标识",
-				sItemChats: "对话内容",
-				sItemPrompts: "提示词（Prompt）",
-				sItemResponses: "回复（Response）",
-				sItemFiles: "文件",
-				sItemKeys: "API Key",
-				sItemTools: "工具参数",
-				sPrivacyMore: "查看隐私说明",
-				sDeleteNote: "只删除已提交到 MADRank 的历史排名数据，不影响此设备上的本地统计。",
-				sData: "本地数据",
-				sDataRecords: "本地记录",
-				sDaysCount: "{n} 天",
-				sDataNote: "用量统计只保存在这台设备上，用于展示趋势和生成每日同步数据。",
-				sClearBtn: "清除本地数据",
-				sClearConfirmBtn: "确认清除",
-				sClearPending: "清除中…",
-				sClearDone: "本地统计记录已清除。",
-				sClearNote: "只清空此设备上的本地统计记录，不会删除已提交到 MADRank 的历史排名数据；进行中的会话会重新累计。",
-				sPlugin: "插件",
-				sPluginName: "MADRank DSH Plugin",
-				sStatus: "状态",
-				sPluginEnabled: "已启用",
-				sInstallGuide: "安装说明"
-			}
+			en,
+			zh
+		};
+		/** 提供给宿主 locale 服务登记的字典（register(ns, locale, dict)）。 */
+		const LOCALE_RESOURCES = {
+			en,
+			zh
 		};
 		/** 取词 + {name} 插值；缺键回退 en，再缺回显 key（fail loud，对齐官方 lookup 链）。 */
 		function tr(lang, key, vars) {
@@ -536,6 +565,46 @@ window.__ModuleLoader__.load({
 			return tr(lang, "agoDay", { n: Math.floor(h / 24) });
 		}
 		//#endregion
+		//#region src/client/style-registry.ts
+		/**
+		* style-registry.ts — Client 全局 <style> 的生命周期。
+		*
+		* 规范要求（ui-plugin.md:13）：样式是注册在 apply 上下文里的资源，插件卸载时
+		* 必须被回收，而不是永久留在 document.head。本模块只做三件事：
+		* 1. 统一生成 `data-plugin-css` 去重 id（沿用官方 data-plugin-css 范式）；
+		* 2. 登记每一个实际插入的 <style> 元素；
+		* 3. 提供一次性移除入口，由 client 入口的 ctx.effect 清理函数调用。
+		*/
+		const owned = /* @__PURE__ */ new Set();
+		/** `madrank-usage/<scope>`：与官方 style[data-plugin-css] 去重键同名。 */
+		function styleTagId(scope) {
+			return "madrank-usage/" + scope;
+		}
+		function styleTagInstalled(scope) {
+			if (typeof document === "undefined") return true;
+			const id = JSON.stringify(styleTagId(scope)).slice(1, -1);
+			return document.querySelector("style[data-plugin-css=\"" + id + "\"]") !== null;
+		}
+		/** 插入并登记一个 <style>；已存在则复用（不重复登记）。 */
+		function insertTrackedStyle(scope, css) {
+			if (typeof document === "undefined") return null;
+			if (styleTagInstalled(scope)) return null;
+			const tag = document.createElement("style");
+			tag.dataset.plugin = "madrank-usage";
+			tag.dataset.pluginCss = styleTagId(scope);
+			tag.textContent = css;
+			document.head.appendChild(tag);
+			owned.add(tag);
+			return tag;
+		}
+		/** 移除本插件插入过的全部样式；可重复调用。 */
+		function disposeStyles() {
+			for (const tag of owned) try {
+				tag.remove();
+			} catch {}
+			owned.clear();
+		}
+		//#endregion
 		//#region src/client/card-html.ts
 		/*****************************************************************************
 		* card-html.ts — 卡片纯标记层（单一 markup 源，零依赖）。
@@ -570,6 +639,7 @@ window.__ModuleLoader__.load({
 			"\"": "&quot;",
 			"'": "&#39;"
 		})[ch] ?? ch);
+		const STYLE_ID = "madrank/card";
 		const CSS = [
 			".madrank-card{width:320px;max-width:88vw;color:var(--dsw-alias-label-primary);",
 			"  display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.45}",
@@ -759,14 +829,7 @@ window.__ModuleLoader__.load({
 		].join("");
 		/** 样式注入一次（官方 data-plugin-css 去重范式）；预览工具可 opts.style 内联。 */
 		function ensureCardStyles() {
-			if (typeof document === "undefined") return;
-			const tagId = "madrank-usage/madrank/card";
-			if (document.querySelector("style[data-plugin-css=\"" + JSON.stringify(tagId).slice(1, -1) + "\"]")) return;
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "madrank-usage";
-			tag.dataset.pluginCss = tagId;
-			tag.textContent = CSS + LG_CSS;
-			document.head.appendChild(tag);
+			insertTrackedStyle(STYLE_ID, CSS + LG_CSS);
 		}
 		/** View race 链接回退值（endpoint 缺席/不可解析时；与默认 endpoint 同源）。 */
 		const RACE_URL_DEFAULT = "https://madrank.ai/race";
@@ -1114,6 +1177,46 @@ window.__ModuleLoader__.load({
 			return resolveLang(activeLocale);
 		}
 		//#endregion
+		//#region src/client/confirm.ts
+		/**
+		* confirm.ts — 通用二次确认弹层（React 组件，Portal 挂 body）。
+		*
+		* 用途：MADRank 里只有"隐私含义"的动作需要二次确认——加入/退出全球排名。
+		* 弹层本身不持有业务状态：确认/取消都由调用方决定，关闭即卸载、无残留。
+		*/
+		function ConfirmDialog(props) {
+			const { title, body, confirmLabel, cancelLabel, onConfirm, onCancel, zIndex } = props;
+			(0, react.useEffect)(() => {
+				const onKey = (ev) => {
+					if (ev.key !== "Escape") return;
+					ev.stopPropagation();
+					onCancel();
+				};
+				document.addEventListener("keydown", onKey, true);
+				return () => document.removeEventListener("keydown", onKey, true);
+			}, [onCancel]);
+			if (typeof document === "undefined") return null;
+			const root = (0, react.createElement)("div", {
+				className: "madrank-confirm",
+				role: "dialog",
+				"aria-modal": "true",
+				"aria-label": title,
+				style: zIndex === void 0 ? void 0 : { zIndex: String(zIndex) },
+				onClick: (e) => {
+					if (e.target === e.currentTarget) onCancel();
+				}
+			}, (0, react.createElement)("div", { className: "madrank-confirm-panel" }, (0, react.createElement)("h3", { className: "madrank-confirm-title" }, title), (0, react.createElement)("p", { className: "madrank-confirm-body" }, body), (0, react.createElement)("div", { className: "madrank-confirm-actions" }, (0, react.createElement)("button", {
+				type: "button",
+				className: "madrank-confirm-cancel",
+				onClick: onCancel
+			}, cancelLabel), (0, react.createElement)("button", {
+				type: "button",
+				className: "madrank-confirm-ok",
+				onClick: onConfirm
+			}, confirmLabel))));
+			return (0, react_dom.createPortal)(root, document.body);
+		}
+		//#endregion
 		//#region src/client/settings-panel.ts
 		/**
 		* settings-panel.ts — 设置 → MADRank 配置面板（v0.2 交互规范落点）。
@@ -1134,7 +1237,7 @@ window.__ModuleLoader__.load({
 		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
 		*/
 		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-		const PLUGIN_VERSION = "0.5.3";
+		const PLUGIN_VERSION = "0.5.12";
 		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 		const SITE_FALLBACK = "https://madrank.ai";
 		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
@@ -1160,6 +1263,7 @@ window.__ModuleLoader__.load({
 				return;
 			}
 		}
+		const SETTINGS_STYLE_ID = "madrank/settings-panel";
 		const SETTINGS_CSS = [
 			".mkp{display:flex;flex-direction:column;gap:18px;max-width:640px;color:var(--dsw-alias-label-primary);",
 			"  font-size:13px;line-height:1.5}",
@@ -1223,6 +1327,12 @@ window.__ModuleLoader__.load({
 			"/* 注脚 + 动作 */",
 			".mkp-note{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px;margin:0;padding:0 14px 11px}",
 			".mkp-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 14px 12px}",
+			".mkp-btn{appearance:none;border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35));background:transparent;",
+			"  color:inherit;font:inherit;font-size:12px;line-height:18px;padding:5px 12px;border-radius:8px;cursor:pointer}",
+			".mkp-btn:hover{background:var(--dsw-interactive-bg-hover, rgba(128,128,128,.14))}",
+			".mkp-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary, #6ee7b7);outline-offset:-2px}",
+			".mkp-btn.is-danger{color:var(--dsw-alias-label-danger, #ff6b6b);",
+			"  border-color:color-mix(in srgb, var(--dsw-alias-label-danger, #ff6b6b) 45%, transparent)}",
 			"button.mkp-btn{min-height:30px;padding:4px 12px;border-radius:8px;",
 			"  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);",
 			"  font:inherit;font-size:12px;font-weight:500;cursor:pointer}",
@@ -1241,14 +1351,7 @@ window.__ModuleLoader__.load({
 		].join("");
 		/** 注入一次（data-plugin-css 去重；与 card-html/panel 同范式）。 */
 		function ensureSettingsStyles() {
-			if (typeof document === "undefined") return;
-			const tagId = "madrank-usage/madrank/settings-panel";
-			if (document.querySelector("style[data-plugin-css=\"" + JSON.stringify(tagId).slice(1, -1) + "\"]")) return;
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "madrank-usage";
-			tag.dataset.pluginCss = tagId;
-			tag.textContent = SETTINGS_CSS;
-			document.head.appendChild(tag);
+			insertTrackedStyle(SETTINGS_STYLE_ID, SETTINGS_CSS);
 		}
 		/** 开关行：label + 描述 + role="switch"。disabled 时附 hint。 */
 		function ToggleRow(props) {
@@ -1285,13 +1388,15 @@ window.__ModuleLoader__.load({
 			useTickSource(dataTick.subscribe);
 			useTickSource(scope && typeof scope.subscribe === "function" ? scope.subscribe.bind(scope) : void 0);
 			const lang = resolveActiveLang();
+			const [confirmRank, setConfirmRank] = (0, react.useState)(null);
+			const [confirmClear, setConfirmClear] = (0, react.useState)(false);
 			const sv = scopeValue$1(scope);
 			const enabled = sv?.enabled === true;
 			const autoSync = sv?.autoSync !== false;
 			const snap = dataTick.get();
 			const total7 = (Array.isArray(snap.last7Days) ? snap.last7Days : []).reduce((a, d) => a + (d.primaryTokens > 0 ? d.primaryTokens : 0), 0);
 			const recordDays = Array.isArray(snap.history) ? snap.history.filter((d) => d.primaryTokens > 0).length : 0;
-			return (0, react.createElement)("div", {
+			const panel = (0, react.createElement)("div", {
 				className: "mkp",
 				"data-madrank-settings": "true"
 			}, (0, react.createElement)("div", { className: "mkp-head" }, (0, react.createElement)("span", {
@@ -1308,9 +1413,7 @@ window.__ModuleLoader__.load({
 				label: tr(lang, "sRankingToggle"),
 				desc: tr(lang, "sRankingDesc"),
 				checked: enabled,
-				onToggle: (next) => {
-					Promise.resolve(scope.set("enabled", next)).catch(() => {});
-				}
+				onToggle: (next) => setConfirmRank(next)
 			}))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sSync")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(ToggleRow, {
 				label: tr(lang, "sSyncToggle"),
 				desc: tr(lang, "sSyncDesc"),
@@ -1348,9 +1451,13 @@ window.__ModuleLoader__.load({
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sDataRecords"),
 				v: tr(lang, "sDaysCount", { n: recordDays })
-			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
+			}), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sDataNote")), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)("button", {
+				type: "button",
+				className: "mkp-btn is-danger",
+				onClick: () => setConfirmClear(true)
+			}, tr(lang, "sClearBtn"))))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "sPluginName"),
-				v: "v0.5.3"
+				v: "v0.5.12"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sStatus"),
 				v: "● " + tr(lang, "sPluginEnabled")
@@ -1360,16 +1467,39 @@ window.__ModuleLoader__.load({
 				target: "_blank",
 				rel: "noreferrer noopener"
 			}, tr(lang, "sInstallGuide"), " →")))));
+			return (0, react.createElement)(react.Fragment, null, panel, confirmRank === null ? null : (0, react.createElement)(ConfirmDialog, {
+				title: tr(lang, confirmRank ? "confirmJoinTitle" : "confirmLeaveTitle"),
+				body: tr(lang, confirmRank ? "confirmJoinBody" : "confirmLeaveBody"),
+				confirmLabel: tr(lang, "confirmOk"),
+				cancelLabel: tr(lang, "confirmCancel"),
+				onConfirm: () => {
+					Promise.resolve(scope.set("enabled", confirmRank)).catch(() => {});
+					setConfirmRank(null);
+				},
+				onCancel: () => setConfirmRank(null)
+			}), confirmClear ? (0, react.createElement)(ConfirmDialog, {
+				title: tr(lang, "sClearBtn"),
+				body: tr(lang, "sClearNote"),
+				confirmLabel: tr(lang, "sClearConfirmBtn"),
+				cancelLabel: tr(lang, "confirmCancel"),
+				onConfirm: () => {
+					Promise.resolve(scope.set("clearedAt", Date.now())).catch(() => {});
+					setConfirmClear(false);
+				},
+				onCancel: () => setConfirmClear(false)
+			}) : null);
 		}
 		//#endregion
 		//#region src/client/share-modal.ts
 		/**
-		* share-modal.ts — 分享弹层(浏览器半侧,零依赖 vanilla DOM)。
+		* share-modal.tsx — 分享海报弹层（React 组件，官方 slot/portal 形态）。
 		*
-		* 交互形态对齐"分享海报"模式:点击分享 → 自动卡片截图(服务端 OG 图,
-		* 带二维码) + 可编辑文案 + 复制/下载/系统带图分享/X。
-		* 一次性 overlay 挂 document.body;重复打开先清场;ESC/背板/×关闭。
-		* 视觉走 --dsw-alias-* 宿主主题变量(带回退),与卡片语言一致。
+		* 契约：
+		* - 由 CardShell 用 React 状态挂载，`createPortal` 到 document.body（fixed overlay 的标准做法，
+		*   slot 目录也要求 fixed overlay portal 到 body 才能逃离侧栏裁剪）；卸载即回收，无残留 DOM。
+		* - 不再手写 DOM / appendChild / 模块级监听器；样式是组件内 `<style>`，随组件卸载移除。
+		* - 保留原有能力：卡片图、可编辑文案、复制文案/链接、下载卡片、系统带图分享、分享到 X；
+		*   捕获阶段接管 Escape，只关分享层、不连坐下层 Quick View 卡片。
 		*/
 		const ID = "madrank-share-modal";
 		const css = [
@@ -1403,20 +1533,6 @@ window.__ModuleLoader__.load({
 			"@media (prefers-reduced-motion: no-preference){#" + ID + " .mks-panel{animation:mks-in .14s ease-out}}",
 			"@keyframes mks-in{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}"
 		].join("\n");
-		function ensureStyles() {
-			if (document.getElementById(ID + "-style")) return;
-			const s = document.createElement("style");
-			s.id = ID + "-style";
-			s.textContent = css;
-			document.head.appendChild(s);
-		}
-		function flash(btn, lang, ok) {
-			const prev = btn.textContent;
-			btn.textContent = tr(lang, ok ? "shareCopied" : "shareCopyFailed");
-			setTimeout(() => {
-				btn.textContent = prev;
-			}, 1400);
-		}
 		async function copyText(v) {
 			try {
 				await navigator.clipboard.writeText(v);
@@ -1444,121 +1560,127 @@ window.__ModuleLoader__.load({
 				return null;
 			}
 		}
-		/** 打开分享弹层(幂等:已开先关)。 */
-		function openShareModal(opts) {
-			closeShareModal();
-			ensureStyles();
-			const lang = opts.lang;
-			const root = document.createElement("div");
-			root.id = ID;
-			const panel = document.createElement("div");
-			panel.className = "mks-panel";
-			panel.setAttribute("role", "dialog");
-			panel.setAttribute("aria-modal", "true");
-			panel.setAttribute("aria-label", tr(lang, "shareModalTitle"));
-			const head = document.createElement("div");
-			head.className = "mks-head";
-			const title = document.createElement("div");
-			title.className = "mks-title";
-			title.textContent = tr(lang, "shareModalTitle");
-			const close = document.createElement("button");
-			close.className = "mks-close";
-			close.type = "button";
-			close.setAttribute("aria-label", tr(lang, "shareClose"));
-			close.textContent = "✕";
-			head.append(title, close);
-			const img = document.createElement("img");
-			img.className = "mks-card";
-			img.src = opts.cardUrl;
-			img.alt = tr(lang, "shareCardAlt");
-			const hint = document.createElement("p");
-			hint.className = "mks-hint";
-			hint.textContent = tr(lang, "shareQrHint");
-			const editHint = document.createElement("p");
-			editHint.className = "mks-hint";
-			editHint.textContent = tr(lang, "shareEditHint");
-			const ta = document.createElement("textarea");
-			ta.className = "mks-text";
-			ta.value = opts.text + "\n" + opts.url;
-			const actions = document.createElement("div");
-			actions.className = "mks-actions";
-			const mk = (label, onClick, cls) => {
-				const b = document.createElement("button");
-				b.type = "button";
-				b.textContent = label;
-				if (cls) b.className = cls;
-				b.addEventListener("click", () => {
-					onClick(b);
-				});
-				return b;
+		/** 分享海报弹层。 */
+		function ShareModal(props) {
+			const { cardUrl, url, text, lang, onClose } = props;
+			const [value, setValue] = (0, react.useState)(() => text + "\n" + url);
+			const [dirty, setDirty] = (0, react.useState)(false);
+			const [busy, setBusy] = (0, react.useState)(false);
+			const [feedback, setFeedback] = (0, react.useState)(null);
+			const timer = (0, react.useRef)(null);
+			const showFeedback = (0, react.useCallback)((kind) => {
+				setFeedback(kind);
+				if (timer.current !== null) clearTimeout(timer.current);
+				timer.current = setTimeout(() => {
+					setFeedback(null);
+					timer.current = null;
+				}, 1400);
+			}, []);
+			(0, react.useEffect)(() => {
+				if (!dirty) setValue(text + "\n" + url);
+			}, [
+				text,
+				url,
+				dirty
+			]);
+			(0, react.useEffect)(() => {
+				const onKey = (ev) => {
+					if (ev.key !== "Escape") return;
+					ev.stopPropagation();
+					onClose();
+				};
+				document.addEventListener("keydown", onKey, true);
+				return () => document.removeEventListener("keydown", onKey, true);
+			}, [onClose]);
+			(0, react.useEffect)(() => () => {
+				if (timer.current !== null) clearTimeout(timer.current);
+				timer.current = null;
+			}, []);
+			const flashable = (base, key) => feedback === key ? tr(lang, "shareCopied") : feedback === "fail" && key === "text" ? tr(lang, "shareCopyFailed") : base;
+			const runCopy = (payload, key) => {
+				copyText(payload).then((ok) => showFeedback(ok ? key : "fail"));
 			};
-			const btnCopyText = mk(tr(lang, "shareCopyText"), async (b) => flash(b, lang, await copyText(ta.value)));
-			const btnCopyLink = mk(tr(lang, "shareCopyLink"), async (b) => flash(b, lang, await copyText(opts.url)));
-			const btnDownload = mk(tr(lang, "shareDownload"), async (b) => {
-				root.setAttribute("data-busy", "true");
-				const blob = await fetchCardBlob(opts.cardUrl);
-				root.removeAttribute("data-busy");
-				if (blob === null) {
-					window.open(opts.cardUrl, "_blank", "noopener,noreferrer");
-					return;
-				}
-				const a = document.createElement("a");
-				a.href = URL.createObjectURL(blob);
-				a.download = "madrank-card.png";
-				a.click();
-				setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
-				flash(b, lang, true);
-			});
-			const btnX = mk(tr(lang, "shareX"), () => {
-				const intent = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(ta.value.split("\n")[0] ?? "") + "&url=" + encodeURIComponent(opts.url);
-				window.open(intent, "_blank", "noopener,noreferrer");
-			});
-			actions.append(btnCopyText, btnCopyLink, btnDownload, btnX);
+			const download = () => {
+				setBusy(true);
+				fetchCardBlob(cardUrl).then((blob) => {
+					setBusy(false);
+					if (blob === null) {
+						window.open(cardUrl, "_blank", "noopener,noreferrer");
+						return;
+					}
+					const a = document.createElement("a");
+					a.href = URL.createObjectURL(blob);
+					a.download = "madrank-card.png";
+					a.click();
+					setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
+					showFeedback("download");
+				});
+			};
 			const nav = navigator;
-			if (typeof nav.share === "function") {
-				const btnNative = mk(tr(lang, "shareNative"), async (b) => {
-					root.setAttribute("data-busy", "true");
+			const canNativeShare = typeof nav.share === "function";
+			const nativeShare = () => {
+				setBusy(true);
+				(async () => {
 					let file = null;
 					try {
-						const blob = await fetchCardBlob(opts.cardUrl);
+						const blob = await fetchCardBlob(cardUrl);
 						if (blob !== null && typeof nav.canShare === "function") {
 							const f = new File([blob], "madrank-card.png", { type: "image/png" });
 							if (nav.canShare({ files: [f] })) file = f;
 						}
 					} catch {}
-					root.removeAttribute("data-busy");
+					setBusy(false);
 					try {
 						await nav.share(file !== null ? {
 							files: [file],
-							text: ta.value.split("\n")[0] ?? "",
-							url: opts.url
+							text: value.split("\n")[0] ?? "",
+							url
 						} : {
-							text: ta.value,
-							url: opts.url
+							text: value,
+							url
 						});
 					} catch {}
-					flash(b, lang, true);
-				}, "mks-primary");
-				actions.append(btnNative);
-			}
-			panel.append(head, img, hint, editHint, ta, actions);
-			root.appendChild(panel);
-			root.addEventListener("click", (ev) => {
-				if (ev.target === root) closeShareModal();
-			});
-			close.addEventListener("click", closeShareModal);
-			const onKey = (ev) => {
-				if (ev.key === "Escape") {
-					ev.stopPropagation();
-					closeShareModal();
-					document.removeEventListener("keydown", onKey, true);
-				}
+					showFeedback("native");
+				})();
 			};
-			document.addEventListener("keydown", onKey, true);
-			document.body.appendChild(root);
-		}
-		function closeShareModal() {
-			document.getElementById(ID)?.remove();
+			const shareX = () => {
+				const intent = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(value.split("\n")[0] ?? "") + "&url=" + encodeURIComponent(url);
+				window.open(intent, "_blank", "noopener,noreferrer");
+			};
+			const btn = (label, onClick, cls) => (0, react.createElement)("button", {
+				type: "button",
+				className: cls,
+				onClick
+			}, label);
+			const root = (0, react.createElement)("div", {
+				id: ID,
+				"data-busy": busy ? "true" : void 0,
+				onClick: (e) => {
+					if (e.target === e.currentTarget) onClose();
+				}
+			}, (0, react.createElement)("style", { id: ID + "-style" }, css), (0, react.createElement)("div", {
+				className: "mks-panel",
+				role: "dialog",
+				"aria-modal": "true",
+				"aria-label": tr(lang, "shareModalTitle")
+			}, (0, react.createElement)("div", { className: "mks-head" }, (0, react.createElement)("div", { className: "mks-title" }, tr(lang, "shareModalTitle")), (0, react.createElement)("button", {
+				type: "button",
+				className: "mks-close",
+				"aria-label": tr(lang, "shareClose"),
+				onClick: onClose
+			}, "✕")), (0, react.createElement)("img", {
+				className: "mks-card",
+				src: cardUrl,
+				alt: tr(lang, "shareCardAlt")
+			}), (0, react.createElement)("p", { className: "mks-hint" }, tr(lang, "shareQrHint")), (0, react.createElement)("p", { className: "mks-hint" }, tr(lang, "shareEditHint")), (0, react.createElement)("textarea", {
+				className: "mks-text",
+				value,
+				onChange: (e) => {
+					setDirty(true);
+					setValue(e.target.value);
+				}
+			}), (0, react.createElement)("div", { className: "mks-actions" }, btn(flashable(tr(lang, "shareCopyText"), "text"), () => runCopy(value, "text")), btn(flashable(tr(lang, "shareCopyLink"), "link"), () => runCopy(url, "link")), btn(feedback === "download" ? tr(lang, "shareCopied") : tr(lang, "shareDownload"), download), btn(tr(lang, "shareX"), shareX), canNativeShare ? btn(feedback === "native" ? tr(lang, "shareCopied") : tr(lang, "shareNative"), nativeShare, "mks-primary") : null)));
+			return typeof document !== "undefined" ? (0, react_dom.createPortal)(root, document.body) : null;
 		}
 		//#endregion
 		//#region src/whoami.ts
@@ -1674,6 +1796,9 @@ window.__ModuleLoader__.load({
 			const [, force] = (0, react.useState)(0);
 			const [range, setRange] = (0, react.useState)("7d");
 			const [selYmd, setSelYmd] = (0, react.useState)(void 0);
+			const [share, setShare] = (0, react.useState)(null);
+			const [tab, setTab] = (0, react.useState)("usage");
+			const [confirmRank, setConfirmRank] = (0, react.useState)(null);
 			const ref = (0, react.useRef)(null);
 			let html;
 			try {
@@ -1700,55 +1825,58 @@ window.__ModuleLoader__.load({
 				console.warn("[madrank] card render fallback", e);
 				html = "<div class=\"madrank-card\"><h3 style=\"margin:0\">" + tr(cardLang(), "cardTitle") + "</h3><section class=\"mod\"><div class=\"muted\">Card unavailable this tick.</div></section></div>";
 			}
-			(0, react.useEffect)(() => {
-				const rootEl = ref.current;
-				if (!rootEl) return;
-				const join = rootEl.querySelector("[data-madrank-join]");
-				const onJoin = () => {
-					Promise.resolve(scope.set("enabled", true)).catch(() => {});
-					force((x) => x + 1);
-				};
-				join?.addEventListener("click", onJoin);
-				const leave = rootEl.querySelector("[data-madrank-leave]");
-				const onLeave = () => {
-					Promise.resolve(scope.set("enabled", false)).catch(() => {});
-					force((x) => x + 1);
-				};
-				leave?.addEventListener("click", onLeave);
-				const shareBtn = rootEl.querySelector("[data-madrank-share]");
-				const onShare = (ev) => {
-					const el = ev.currentTarget;
+			/** 打开分享弹层：同步打开（点击必有响应），再异步刷新服务器真值（2.5s 超时）。 */
+			const openShareFrom = (target) => {
+				try {
+					const el = target?.closest?.("[data-madrank-share]") ?? null;
 					const url = el?.getAttribute("data-share-url");
 					if (!url || el === null) return;
 					const cardUrl = el.getAttribute("data-share-card") ?? url;
 					const attrText = el.getAttribute("data-share-text") ?? "";
-					const token = dataTick.get().global?.shareToken;
-					const openWith = (text) => openShareModal({
+					setShare({
 						url,
 						cardUrl,
-						text,
+						text: attrText,
 						lang: cardLang()
 					});
-					if (!token) {
-						openWith(attrText);
-						return;
-					}
-					(async () => {
-						try {
-							const fresh = await fetchRaceMe(url, token, globalThis.fetch.bind(globalThis));
-							if (fresh?.me) {
-								openWith(formatShareText({
-									rank: fresh.me.rank,
-									participants: fresh.participants,
-									race7d: fresh.me.total
-								}, fresh.topModel ?? dataTick.get().topModels?.[0]?.model, cardLang()));
-								return;
-							}
-						} catch {}
-						openWith(attrText);
-					})();
-				};
-				shareBtn?.addEventListener("click", onShare);
+					const token = dataTick.get().global?.shareToken;
+					if (!token) return;
+					const timeout = new Promise((resolve) => {
+						setTimeout(() => resolve(null), 2500);
+					});
+					Promise.race([fetchRaceMe(url, token, globalThis.fetch.bind(globalThis)).catch(() => null), timeout]).then((fresh) => {
+						if (!fresh?.me) return;
+						const text = formatShareText({
+							rank: fresh.me.rank,
+							participants: fresh.participants,
+							race7d: fresh.me.total
+						}, fresh.topModel ?? dataTick.get().topModels?.[0]?.model, cardLang());
+						setShare((prev) => prev === null ? prev : {
+							...prev,
+							text
+						});
+					});
+				} catch (e) {
+					console.error("[madrank] share open failed", e);
+					const el = target?.closest?.("[data-madrank-share]") ?? null;
+					const url = el?.getAttribute("data-share-url");
+					if (url) setShare({
+						url,
+						cardUrl: el?.getAttribute("data-share-card") ?? url,
+						text: "",
+						lang: cardLang()
+					});
+				}
+			};
+			(0, react.useEffect)(() => {
+				const rootEl = ref.current;
+				if (!rootEl) return;
+				const join = rootEl.querySelector("[data-madrank-join]");
+				const onJoin = () => setConfirmRank("join");
+				join?.addEventListener("click", onJoin);
+				const leave = rootEl.querySelector("[data-madrank-leave]");
+				const onLeave = () => setConfirmRank("leave");
+				leave?.addEventListener("click", onLeave);
 				const snap = dataTick.get();
 				const fallbackDay = () => {
 					const hist = snap.history;
@@ -1778,10 +1906,8 @@ window.__ModuleLoader__.load({
 				return () => {
 					join?.removeEventListener("click", onJoin);
 					leave?.removeEventListener("click", onLeave);
-					shareBtn?.removeEventListener("click", onShare);
 					rangeBtns.forEach((b) => b.removeEventListener("click", onRange));
 					dayBars.forEach((b) => b.removeEventListener("click", onDayBar));
-					closeShareModal();
 				};
 			}, [
 				scope,
@@ -1817,6 +1943,30 @@ window.__ModuleLoader__.load({
 				boxSizing: "border-box",
 				pointerEvents: "auto"
 			};
+			const tabButton = (id, label) => (0, react.createElement)("button", {
+				type: "button",
+				role: "tab",
+				className: "madrank-tab",
+				"data-active": String(tab === id),
+				"aria-selected": tab === id,
+				onClick: () => setTab(id)
+			}, label);
+			const withOverlays = (node) => (0, react.createElement)(react.Fragment, null, node, share === null ? null : (0, react.createElement)(ShareModal, {
+				...share,
+				onClose: () => setShare(null)
+			}), confirmRank === null ? null : (0, react.createElement)(ConfirmDialog, {
+				title: tr(cardLang(), confirmRank === "join" ? "confirmJoinTitle" : "confirmLeaveTitle"),
+				body: tr(cardLang(), confirmRank === "join" ? "confirmJoinBody" : "confirmLeaveBody"),
+				confirmLabel: tr(cardLang(), "confirmOk"),
+				cancelLabel: tr(cardLang(), "confirmCancel"),
+				onConfirm: () => {
+					const next = confirmRank === "join";
+					setConfirmRank(null);
+					Promise.resolve(scope.set("enabled", next)).catch(() => {});
+					force((x) => x + 1);
+				},
+				onCancel: () => setConfirmRank(null)
+			}));
 			if (anchored && onClose) {
 				const overlay = (0, react.createElement)("div", {
 					key: "madrank-modal-overlay",
@@ -1840,21 +1990,82 @@ window.__ModuleLoader__.load({
 					},
 					onClick: onClose
 				}, (0, react.createElement)("div", {
-					ref,
 					className: "madrank-panel madrank-panel-modal",
 					style: cardStyle,
-					onClick: (e) => e?.stopPropagation(),
-					onPointerDown: (e) => e?.stopPropagation(),
+					onClick: (e) => {
+						e?.stopPropagation();
+						openShareFrom(e?.target ?? null);
+					},
+					onPointerDown: (e) => e?.stopPropagation()
+				}, (0, react.createElement)("div", {
+					className: "madrank-tabs",
+					role: "tablist"
+				}, tabButton("usage", tr(cardLang(), "tabUsage")), tabButton("settings", tr(cardLang(), "tabSettings"))), (0, react.createElement)("div", {
+					ref,
+					className: "madrank-panel-usage",
+					style: tab === "usage" ? void 0 : { display: "none" },
 					dangerouslySetInnerHTML: { __html: html }
-				}));
-				return typeof document !== "undefined" ? (0, react_dom.createPortal)(overlay, document.body) : overlay;
+				}), tab === "settings" ? (0, react.createElement)("div", { className: "madrank-settings-pane" }, (0, react.createElement)(MadrankSettingsPanel, { scope })) : null));
+				return typeof document !== "undefined" ? withOverlays((0, react_dom.createPortal)(overlay, document.body)) : withOverlays(overlay);
 			}
-			return (0, react.createElement)("div", {
+			return withOverlays((0, react.createElement)("div", {
 				ref,
 				className: "madrank-panel",
+				onClick: (e) => openShareFrom(e?.target ?? null),
 				dangerouslySetInnerHTML: { __html: html }
-			});
+			}));
 		}
+		/** 侧栏导航图标：MADRank 的 M + 端点，跟随宿主 currentColor / size。 */
+		function MadrankSidebarIcon(props) {
+			const s = props.size ?? 18;
+			return (0, react.createElement)("svg", {
+				width: s,
+				height: s,
+				viewBox: "0 0 24 24",
+				fill: "none",
+				stroke: "currentColor",
+				strokeWidth: 1.8,
+				strokeLinecap: "round",
+				strokeLinejoin: "round",
+				"aria-hidden": "true"
+			}, (0, react.createElement)("path", { d: "M6 18V7l6 6 6-6v11" }), (0, react.createElement)("circle", {
+				cx: 12,
+				cy: 13,
+				r: 1.2,
+				fill: "currentColor",
+				stroke: "none"
+			}));
+		}
+		/**
+		* 侧栏入口 → 弹窗卡片宿主：主区只放一个占位容器，真正的卡片由 CardShell
+		* 以 frame-wide portal 覆盖整窗（与旧 footer 弹窗同一套 CardShell，位置由侧栏入口决定）。
+		* 关闭时由外部（client/index.ts）调用 layout.selectPanel('conversation') 回到会话。
+		* scope 由外层 withSessionData 延迟解析后注入；缺失时渲染占位而不是静默空白。
+		*/
+		function MadrankOverlayHost(props) {
+			ensurePanelStyles();
+			useTickSource(dataTick.subscribe);
+			const { scope, onClose } = props;
+			if (!scope) return (0, react.createElement)("div", { className: "madrank-page" }, (0, react.createElement)("p", { className: "madrank-page-sub" }, tr(cardLang(), "cardSubtitle")));
+			return (0, react.createElement)("div", {
+				className: "madrank-page",
+				"data-madrank-page": "true"
+			}, (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(CardShell, {
+				scope,
+				anchored: true,
+				onClose
+			})));
+		}
+		/**
+		* 脚部入口样式 —— 对齐「插件市场」launcher（宿主 Button ghost 变体）的观感：
+		*   - 字色 label-primary（Button.module.css .button 同款；此前 inline 的
+		*     label-secondary 是「偏灰」的根因）
+		*   - hover 背景 --dsw-alias-interactive-bg-hover（.ghost:hover 同款，视觉上
+		*     即用户感知的「移上去有阴影」）；active 用 bg-active
+		*   - inline style 表达不了 :hover/:active 伪类 —— 必须走注入 CSS。
+		*   注入沿用 card-html 的 data-plugin-css 去重范式。
+		*/
+		const PANEL_STYLE_ID = "madrank/panel";
 		const PANEL_CSS = [
 			".madrank-foot{position:relative;flex:1 1 auto;min-width:0}",
 			"/* 包裹层铺满 footerActions 行（flex 项默认 shrink-wrap，是高亮不随侧栏宽度铺满的根因）；",
@@ -1880,18 +2091,47 @@ window.__ModuleLoader__.load({
 			"  outline-offset:-2px}",
 			".madrank-foot-count{margin-left:6px;opacity:.75;font-variant-numeric:tabular-nums}",
 			"@media (prefers-reduced-motion:no-preference){",
-			"  .madrank-foot-btn{transition:background .14s var(--ds-ease-in-out,ease-in-out)}}"
+			"  .madrank-foot-btn{transition:background .14s var(--ds-ease-in-out,ease-in-out)}}",
+			"/* 主区整页（sidebar.panellist + main key 形态） */",
+			".madrank-page{box-sizing:border-box;width:100%;height:100%;overflow:auto;padding:28px 28px 40px;",
+			"  color:var(--dsw-alias-label-primary)}",
+			".madrank-page-inner{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}",
+			".madrank-page-head{display:flex;align-items:center;gap:12px}",
+			".madrank-page-mark{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;",
+			"  background:var(--dsw-alias-bg-layer-2, rgba(128,128,128,.14));",
+			"  border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3));font-weight:700;font-size:16px}",
+			".madrank-page-title{margin:0;font-size:20px;line-height:28px;font-weight:650}",
+			".madrank-page-sub{margin:2px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}",
+			".madrank-page-body{display:flex;flex-direction:column;gap:14px}",
+			"/* 弹窗卡片 tab（用量与排名 / 功能设置） */",
+			".madrank-tabs{display:flex;gap:2px;margin:-4px 0 14px;border-bottom:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3))}",
+			".madrank-tab{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-secondary);",
+			"  font:inherit;font-size:13px;line-height:20px;padding:7px 12px;border-radius:8px 8px 0 0;cursor:pointer}",
+			".madrank-tab:hover{background:var(--dsw-interactive-bg-hover, rgba(128,128,128,.12));color:var(--dsw-alias-label-primary)}",
+			".madrank-tab[data-active=\"true\"]{color:var(--dsw-alias-label-primary);font-weight:600;",
+			"  box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary, #6ee7b7)}",
+			".madrank-tab:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary, #6ee7b7);outline-offset:-2px}",
+			".madrank-settings-pane{padding-top:2px}",
+			"/* 二次确认弹层（隐私动作） */",
+			".madrank-confirm{position:fixed;inset:0;z-index:2147483002;display:flex;align-items:center;justify-content:center;",
+			"  padding:24px;background:rgba(0,0,0,.5)}",
+			".madrank-confirm-panel{width:min(420px,92vw);box-sizing:border-box;border-radius:14px;padding:18px;",
+			"  border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35));",
+			"  background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #1c1c21));",
+			"  color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.45)}",
+			".madrank-confirm-title{margin:0 0 8px;font-size:15px;line-height:22px;font-weight:650}",
+			".madrank-confirm-body{margin:0 0 16px;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-secondary)}",
+			".madrank-confirm-actions{display:flex;justify-content:flex-end;gap:8px}",
+			".madrank-confirm-actions button{min-height:32px;border-radius:8px;padding:5px 14px;font:inherit;font-size:13px;",
+			"  cursor:pointer;border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35));",
+			"  background:var(--dsw-alias-bg-layer-1, rgba(128,128,128,.1));color:inherit}",
+			".madrank-confirm-actions button:hover{background:var(--dsw-interactive-bg-hover, rgba(128,128,128,.16))}",
+			".madrank-confirm-ok{background:var(--dsw-alias-state-business-primary, #6ee7b7)!important;",
+			"  border-color:transparent!important;color:#04110b!important;font-weight:700}"
 		].join("");
 		/** 注入一次（data-plugin-css 去重；与 card-html ensureCardStyles 同范式）。 */
 		function ensurePanelStyles() {
-			if (typeof document === "undefined") return;
-			const tagId = "madrank-usage/madrank/panel";
-			if (document.querySelector("style[data-plugin-css=\"" + JSON.stringify(tagId).slice(1, -1) + "\"]")) return;
-			const tag = document.createElement("style");
-			tag.dataset.plugin = "madrank-usage";
-			tag.dataset.pluginCss = tagId;
-			tag.textContent = PANEL_CSS;
-			document.head.appendChild(tag);
+			insertTrackedStyle(PANEL_STYLE_ID, PANEL_CSS);
 		}
 		function fmtCompact(n) {
 			if (!Number.isFinite(n) || n <= 0) return "";
@@ -1986,17 +2226,29 @@ window.__ModuleLoader__.load({
 		const RANK_PROJECTION_KEY = "madrankRank";
 		/** Loader entry id（必须与 cordis.patch.yml 的 insert.id 一致）。 */
 		const MADRANK_ENTRY_ID = "madrank";
+		/** bundle 包名（plugins.row.config 的 key = `<包名>#<row id>`）。 */
+		const MADRANK_PACKAGE = "@qomob/dsh-madrank";
 		/** 新版客户端依赖的服务面。 */
 		const inject = [
 			"slots",
 			"locale",
-			"configForms"
+			"configForms",
+			"layout"
 		];
 		const windowFixture = () => typeof window !== "undefined" ? window.__MADRANK_CARD_DATA__ ?? {} : {};
-		/** 从会话列表（byId[id].projectionValues）聚合出卡片快照。 */
-		function snapshotFrom(byId, nowMs) {
+		/** 从 settings mirror 里读 clearedAt（坏形状 → 0）。 */
+		function readClearedAt(scope) {
 			try {
-				const d = cardDataFromList({ byId }, nowMs);
+				const v = scope?.getSnapshot?.()?.value ?? void 0;
+				return typeof v?.clearedAt === "number" && Number.isFinite(v.clearedAt) && v.clearedAt > 0 ? v.clearedAt : 0;
+			} catch {
+				return 0;
+			}
+		}
+		/** 从会话列表（byId[id].projectionValues）聚合出卡片快照。 */
+		function snapshotFrom(byId, nowMs, clearedAtMs = 0) {
+			try {
+				const d = cardDataFromList({ byId }, nowMs, clearedAtMs);
 				let global = null;
 				if (byId !== null && typeof byId === "object") for (const entry of Object.values(byId)) {
 					const pv = entry?.projectionValues;
@@ -2024,32 +2276,75 @@ window.__ModuleLoader__.load({
 		/**
 		* slot 组件包装：用 slot 标准 props 的 useSessions 读取会话投影，推进共享
 		* dataTick（两处 UI 同一快照），并把 settings scope 注入原组件。
+		*
+		* scope 延迟解析：configForms 可能晚于 client 模块就绪（冷启动 / HMR 重挂载）。
+		* clearedAt 参与聚合：设置「清除本地数据」后，早于清除日的历史立即不再显示。
 		*/
-		function withSessionData(Comp, scope) {
+		function withSessionData(Comp, resolveScope) {
 			return function SlotEntry(props) {
+				const [scope, setScope] = (0, react.useState)(() => resolveScope());
+				(0, react.useEffect)(() => {
+					if (scope !== void 0) return;
+					const timer = setTimeout(() => {
+						const next = resolveScope();
+						if (next !== void 0) setScope(next);
+					}, 300);
+					return () => clearTimeout(timer);
+				}, [scope]);
 				const useSessions = props["useSessions"];
 				const byId = typeof useSessions === "function" ? useSessions(selectById) : void 0;
+				const scopeTick = useTickSource((0, react.useMemo)(() => scope && typeof scope.subscribe === "function" ? scope.subscribe.bind(scope) : void 0, [scope]));
+				const clearedAt = readClearedAt(scope);
 				(0, react.useEffect)(() => {
 					const snap = {
-						...snapshotFrom(byId, Date.now()),
+						...snapshotFrom(byId, Date.now(), clearedAt),
 						...windowFixture()
 					};
 					dataTick.set(snap);
-				}, [byId]);
+				}, [
+					byId,
+					clearedAt,
+					scopeTick
+				]);
+				if (scope === void 0) return (0, react.createElement)("div", { className: "madrank-page" });
 				return (0, react.createElement)(Comp, {
 					...props,
 					scope
 				});
 			};
 		}
+		/** 客户端激活失败时至少留下可检索的日志（不再渲染诊断 banner）。 */
 		function apply(ctx) {
+			try {
+				applyInner(ctx);
+			} catch (e) {
+				console.error("[madrank] client apply failed", e);
+			}
+		}
+		function applyInner(ctx) {
 			ensurePanelStyles();
+			const cleanups = [disposeStyles];
+			const runCleanups = () => {
+				for (const fn of cleanups.splice(0)) try {
+					fn();
+				} catch {}
+			};
+			if (typeof ctx.effect === "function") try {
+				ctx.effect(() => runCleanups, "madrank client resources");
+			} catch {}
 			const slots = ctx.slots;
-			const scope = ctx.configForms?.get(MADRANK_ENTRY_ID);
-			if (!slots || !scope) {
-				console.warn("[madrank] slots/configForms seam absent — client half idle");
+			if (!slots) {
+				console.warn("[madrank] slots seam absent — client half idle");
 				return;
 			}
+			const resolveScope = () => {
+				try {
+					return ctx.configForms?.get(MADRANK_ENTRY_ID);
+				} catch {
+					return;
+				}
+			};
+			if (resolveScope() === void 0) console.warn("[madrank] configForms not ready yet — entries register now, card retries on mount");
 			const locale = ctx.locale;
 			const safeActive = () => {
 				try {
@@ -2059,31 +2354,60 @@ window.__ModuleLoader__.load({
 				}
 			};
 			setActiveLocale(safeActive());
+			const registerLocale = locale?.register;
+			if (typeof registerLocale === "function") for (const [id, dict] of Object.entries(LOCALE_RESOURCES)) try {
+				const off = registerLocale.call(locale, "madrank", id, dict);
+				if (typeof off === "function") cleanups.push(off);
+			} catch {}
 			try {
-				locale?.subscribe?.(() => {
+				const unsubscribe = locale?.subscribe?.(() => {
 					setActiveLocale(safeActive());
 					dataTick.set(dataTick.get());
 				});
+				if (typeof unsubscribe === "function") cleanups.push(unsubscribe);
 			} catch {}
-			slots.inject("settings.section", () => {
+			const uiLang = () => String(locale?.getSnapshot?.()?.active ?? "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+			slots.inject("plugins.row.config", () => {
 				slots.register({
-					name: "settings.section",
-					id: MADRANK_ENTRY_ID,
-					order: 30,
-					label: "MADRank"
-				}, withSessionData((props) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankSettingsTab, props)), scope));
+					name: "plugins.row.config",
+					key: "@qomob/dsh-madrank#madrank"
+				}, (props) => {
+					if (props?.view === "summary") return (0, react.createElement)("span", { className: "mkp-hsub" }, "MADRank");
+					return (0, react.createElement)("p", {
+						className: "mkp-hsub",
+						style: {
+							margin: 0,
+							lineHeight: "1.6"
+						}
+					}, tr(uiLang(), "sMoveHint"));
+				});
 			});
-			slots.inject("sidebar.footer.action", () => {
+			slots.inject("sidebar.panellist", () => {
 				slots.register({
-					name: "sidebar.footer.action",
+					name: "sidebar.panellist",
 					id: MADRANK_ENTRY_ID,
-					order: 40,
+					order: 2,
 					label: "MADRank"
-				}, withSessionData((props) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankFooterCell, props)), scope));
+				}, (props) => (0, react.createElement)(MadrankSidebarIcon, props));
+			});
+			const layout = ctx.layout;
+			slots.inject("main", () => {
+				slots.register({
+					name: "main",
+					key: MADRANK_ENTRY_ID
+				}, withSessionData((props) => (0, react.createElement)(CardErrorBoundary, null, (0, react.createElement)(MadrankOverlayHost, {
+					...props,
+					onClose: () => {
+						try {
+							layout?.selectPanel?.("conversation");
+						} catch {}
+					}
+				})), resolveScope));
 			});
 		}
 		//#endregion
 		exports.MADRANK_ENTRY_ID = MADRANK_ENTRY_ID;
+		exports.MADRANK_PACKAGE = MADRANK_PACKAGE;
 		exports.MadrankFooterCell = MadrankFooterCell;
 		exports.MadrankSettingsPanel = MadrankSettingsPanel;
 		exports.MadrankSettingsTab = MadrankSettingsTab;

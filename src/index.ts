@@ -29,7 +29,9 @@ import {
 } from './fold.ts'
 import type { MadrankState } from './fold.ts'
 import { buildCardSnapshot } from './snapshot.ts'
-import type { CtxLike, ProjectionDefinitionLike } from './compat.ts'
+import type {
+  CtxLike, ProjectionDefinitionLike, ProjectionHandleLike, ProjectionRegisterResult, ProjectionRegistryLike,
+} from './compat.ts'
 import { UsageStore } from './store.ts'
 import { syncPendingDays } from './sync.ts'
 import { cardGlobalFromRecord, recordFromRace } from './global-rank.ts'
@@ -221,6 +223,19 @@ function buildStateSchema() {
 function buildDefinition(): ProjectionDefinitionLike {
   const viewSchema = buildViewSchema()
   const stateSchema = buildStateSchema()
+  // view 缓存：framework 只在 state 引用变化时调用 view；这里再按 (state, global) 复用同一
+  // 引用，避免同样的数据因 global 重新包装而重复发布。排名镜像变化才换引用。
+  let lastState: MadrankState | null = null
+  let lastGlobal: CardGlobal | null = null
+  let lastView: unknown = null
+  const view = (state: MadrankState): unknown => {
+    const global = storeHolder.globalView
+    if (state === lastState && global === lastGlobal) return lastView
+    lastState = state
+    lastGlobal = global
+    lastView = { ...buildView(state), global }
+    return lastView
+  }
   return {
     key: PROJECTION_KEY,
     stateSchema: stateSchema as unknown as ProjectionDefinitionLike['stateSchema'],
@@ -229,37 +244,40 @@ function buildDefinition(): ProjectionDefinitionLike {
       applyEvent(state, event)) as never,
     wire: {
       viewSchema: viewSchema as unknown as NonNullable<ProjectionDefinitionLike['wire']>['viewSchema'],
-      view: ((state: MadrankState) => ({ ...buildView(state), global: storeHolder.globalView })) as never,
+      // wire.summary 保持默认 true：客户端当前只能经 session 列表的 projectionValues 读取
+      // （slot 标准 props 只提供 useSessions）；关闭 summary 会切断唯一读通道，
+      // 若要改成按需 snapshot 读面，届时再切 false。
+      view: view as never,
     },
     stateVersion: STATE_VERSION,
   }
 }
 
 export function apply(ctx: CtxLike & Record<string, unknown>, config?: unknown): void {
-  debugLog(dataDir(), `apply v0.5.3 config=${JSON.stringify(readSettings(config))}`)
+  debugLog(dataDir(), `apply v0.5.12 config=${JSON.stringify(readSettings(config))}`)
   const log = ctx.logger ?? {
     info: (m: string) => console.info('[madrank]', m),
     warn: (m: string, ...rest: unknown[]) => console.warn('[madrank]', m, ...rest),
     error: (m: string, ...rest: unknown[]) => console.error('[madrank]', m, ...rest),
   }
   // 投影缝获取：直取（大多数 boot 时序下可用）→ 缺席时降级 ctx.inject 等待。
-  const registry = (ctx as { sessionProjections?: import('./compat.ts').ProjectionRegistryLike })
+  const registry = (ctx as { sessionProjections?: ProjectionRegistryLike })
     .sessionProjections
   if (registry && typeof registry.register === 'function') {
-    try {
-      start(registry, ctx, log, config)
-    } catch (e) {
-      log.error('start threw — host half partially applied', e)
-      throw e
-    }
+    // 0.2.x 契约：register 是异步的，必须 await 后才发布消费者（onChanged / timer / 落盘）。
+    void start(registry, ctx, log, config).catch((e) => {
+      log.error('start failed — host half partially applied', e)
+    })
     return
   }
   if (typeof ctx.inject === 'function') {
     ctx.inject(['sessionProjections'], (sctx) => {
-      const reg = (sctx as { sessionProjections?: import('./compat.ts').ProjectionRegistryLike })
+      const reg = (sctx as { sessionProjections?: ProjectionRegistryLike })
         ?.sessionProjections
       if (reg && typeof reg.register === 'function') {
-        start(reg, ctx, log, config)
+        void start(reg, ctx, log, config).catch((e) => {
+          log.error('start failed after inject — host half partially applied', e)
+        })
       } else {
         log.warn('sessionProjections service unusable even via inject — plugin idle')
       }
@@ -296,29 +314,84 @@ function timerOf(ctx: CtxLike): {
   }
 }
 
-function start(
-  registry: import('./compat.ts').ProjectionRegistryLike,
+type AsyncDisposer = () => Promise<void> | void
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as { then?: unknown } | null | undefined)?.then === 'function'
+}
+
+/**
+ * 适配两种 register 契约并返回**真正的释放函数**：
+ * - 0.2.x：返回可调用 thenable → await 得到 `ProjectionHandle`，释放走 `handle.dispose()`；
+ * - 0.1.x：返回 disposer 函数 → 直接使用。
+ * 注册失败（Promise reject）会向上抛，由调用方按“宿主半边未就绪”记录，不再静默。
+ */
+async function adoptRegistration(
+  registry: ProjectionRegistryLike,
+  definition: ProjectionDefinitionLike,
+  log: { warn(m: string, ...rest: unknown[]): void },
+): Promise<AsyncDisposer> {
+  const result: ProjectionRegisterResult = registry.register(definition)
+  if (isThenable(result)) {
+    const handle = (await result) as ProjectionHandleLike | (() => void) | undefined
+    if (handle && typeof (handle as ProjectionHandleLike).dispose === 'function') {
+      return () => (handle as ProjectionHandleLike).dispose()
+    }
+    if (typeof handle === 'function') return handle as AsyncDisposer
+    log.warn('projection registration resolved without a handle; cleanup is a no-op')
+    return () => undefined
+  }
+  if (typeof result === 'function') return result
+  if (result && typeof (result as ProjectionHandleLike).dispose === 'function') {
+    return () => (result as ProjectionHandleLike).dispose()
+  }
+  log.warn('projection registration returned no handle; cleanup is a no-op')
+  return () => undefined
+}
+
+async function start(
+  registry: ProjectionRegistryLike,
   ctx: CtxLike & Record<string, unknown>,
   log: { info(m: string): void; warn(m: string, ...rest: unknown[]): void; error(m: string, ...rest: unknown[]): void },
   config: unknown,
-): void {
-  const store = new UsageStore(dataDir(), STATE_VERSION)
+): Promise<void> {
+  const initialSettings = readSettings(config)
+  const store = new UsageStore(dataDir(), STATE_VERSION, 'usage-store.json', initialSettings.clearedAt)
+  let lastClearedAt = initialSettings.clearedAt
+  // 冷启动就按清除点裁剪一次，并落盘（旧历史不再保留）
+  if (initialSettings.clearedAt > 0) {
+    try { store.flush() } catch { /* best effort */ }
+  }
   storeHolder.store = store
+  // 卸载钩子先挂上：await 注册期间若插件被卸载，已创建的资源仍会被回收。
+  const disposers: Array<() => Promise<void> | void> = []
+  const onDispose = (ctx as { on?: (ev: string, cb: () => void) => void }).on
+  if (typeof onDispose === 'function') {
+    onDispose.call(ctx, 'dispose', () => {
+      for (const dispose of disposers.splice(0)) {
+        try { void Promise.resolve(dispose()).catch(() => undefined) } catch { /* ignore */ }
+      }
+      try { store.flush() } catch { /* ignore */ }
+    })
+  }
   // 排名记录是跨进程持久化的（上次同步的采集结果）——启动即载入内存镜像
   setGlobalRank(readGlobalRank(dataDir()))
 
   // 1) 注册 madrankUsage 单元（framework 拥有订阅与驱动，我们只交数学）。
   const definition = buildDefinition()
-  const disposeRegister = registry.register(definition)
+  const disposeRegister = await adoptRegistration(registry, definition, log)
+  disposers.push(disposeRegister)
   // 排名镜像 → 客户端可见投影（独立 key；view 读缓存引用）
   let rankViewCalls = 0
-  const disposeRankRegister = registry.register(buildRankDefinition(() => {
+  const rankDefinition = buildRankDefinition(() => {
     rankViewCalls += 1
     if (rankViewCalls === 1) {
       debugLog(dataDir(), `rank projection view first call -> ${storeHolder.globalView ? '#' + storeHolder.globalView.rank : 'null'}`)
     }
     return storeHolder.globalView
-  }))
+  })
+  const disposeRankRegister = await adoptRegistration(registry, rankDefinition, log)
+  disposers.push(disposeRankRegister)
   log.info('madrankUsage + madrankRank projections registered')
   debugLog(dataDir(), 'start: projection registered, store loaded')
 
@@ -360,6 +433,7 @@ function start(
       debugLog(dataDir(), `replaceSession failed ${String(e)}`)
     }
   })
+  disposers.push(disposeListener)
 
   // 2b) 会话播种：会话实例创建/恢复时把完整投影视图写进 store。
   // 只靠 onChanged 会漏掉「没有新事件的历史会话」→ 历史日期永远不入 store、
@@ -388,7 +462,22 @@ function start(
   //    配置通过 volatile 引用热更新 → 每轮读取最新值。
   const tick = () => {
     const s = readSettings(config)
-    debugLog(dataDir(), `tick enabled=${s.enabled} autoSync=${s.autoSync} endpoint=${s.endpoint} rank=${storeHolder.globalRank ? '#' + storeHolder.globalRank.rank : 'none'}`)
+    debugLog(dataDir(), `tick enabled=${s.enabled} autoSync=${s.autoSync} endpoint=${s.endpoint} rank=${storeHolder.globalRank ? '#' + storeHolder.globalRank.rank : 'none'} clearedAt=${s.clearedAt}`)
+    // 本地数据清除（设置页写 clearedAt）：裁剪已存历史并立即落盘/刷新快照。
+    if (s.clearedAt !== lastClearedAt) {
+      lastClearedAt = s.clearedAt
+      try {
+        store.setClearedAt(s.clearedAt)
+        store.flush()
+        writeFileSync(
+          join(dataDir(), 'card-snapshot.json'),
+          JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))),
+        )
+        debugLog(dataDir(), `clearedAt applied=${s.clearedAt}`)
+      } catch (e) {
+        log.warn('clear local stats failed', String(e))
+      }
+    }
     // 同步轮门控：参与排名（enabled）+ 自动同步（autoSync）双开关，缺一不发。
     if (!s.enabled || s.autoSync === false || !s.endpoint || !storeHolder.store) return
     void ensureShareToken(s.endpoint)
@@ -421,18 +510,8 @@ function start(
       .catch(() => undefined) // 同步永不影响宿主
   }
   const disposeTick = timer.interval(tick, 60_000)
+  disposers.push(disposeTick)
 
   log.info('host half applied — projection on, sync tick 60s, global mirror ' + (storeHolder.globalRank ? '#' + storeHolder.globalRank.rank : 'empty'))
 
-  // 清理：挂宿主生命周期事件；cordis 卸载插件时自动触发
-  const onDispose = (ctx as { on?: (ev: string, cb: () => void) => void }).on
-  if (typeof onDispose === 'function') {
-    onDispose.call(ctx, 'dispose', () => {
-      disposeTick()
-      disposeListener()
-      disposeRankRegister()
-      disposeRegister()
-      try { store.flush() } catch { /* ignore */ }
-    })
-  }
 }

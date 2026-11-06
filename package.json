@@ -1,6 +1,6 @@
 {
   "name": "@qomob/dsh-madrank",
-  "version": "0.5.3",
+  "version": "0.5.12",
   "description": "MADRank Usage — track your AI usage in DeepSeek Harness, see how you rank.",
   "license": "MIT",
   "type": "module",
@@ -19,7 +19,9 @@
     "icon.svg",
     "README.md",
     "README.zh-CN.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/*.png",
+    "wechat.jpg"
   ],
   "repository": {
     "type": "git",
@@ -37,7 +39,8 @@
     "tokens"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
   },
   "scripts": {
     "build": "npm run build:host && npm run build:client",
@@ -52,7 +55,6 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.5",
-    "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "dsh": {
@@ -71,6 +73,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "happy-dom": "^20.12.0",
+    "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "rolldown": "^1.2.6",
     "typescript": "^5.9.3",

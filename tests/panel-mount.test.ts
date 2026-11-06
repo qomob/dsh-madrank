@@ -95,12 +95,40 @@ describe('点击路径真实挂载（happy-dom）', () => {
     expect(document.body.textContent).toContain('MADRank')
   })
 
-  it('模态内 Join → scope.set("enabled", true)', () => {
+  it('模态内 Join → 先二次确认，确认后才 scope.set("enabled", true)', () => {
     const setSpy = vi.fn()
     mount(createElement(MadrankFooterCell, { scope: makeScope({ setSpy }) }))
     click(host.querySelector('button'))
     click(document.querySelector('[data-madrank-join]'))
+    // 隐私动作：先弹确认，未确认不写配置
+    expect(document.querySelector('.madrank-confirm')).not.toBeNull()
+    expect(setSpy).not.toHaveBeenCalled()
+    click(document.querySelector('.madrank-confirm-ok'))
+    expect(document.querySelector('.madrank-confirm')).toBeNull()
     expect(setSpy).toHaveBeenCalledWith('enabled', true)
+  })
+
+  it('取消确认 → 不写配置', () => {
+    const setSpy = vi.fn()
+    mount(createElement(MadrankFooterCell, { scope: makeScope({ setSpy }) }))
+    click(host.querySelector('button'))
+    click(document.querySelector('[data-madrank-leave]'))
+    click(document.querySelector('.madrank-confirm-cancel'))
+    expect(setSpy).not.toHaveBeenCalled()
+  })
+
+  it('弹窗卡片分为「AI 用量与排名 / 功能设置」两个 tab，设置面板在第二个 tab', () => {
+    mount(createElement(CardShell, { scope: makeScope(), anchored: true, onClose: () => {} }))
+    const tabs = Array.from(document.querySelectorAll('.madrank-tab'))
+    expect(tabs.length).toBe(2)
+    expect(tabs[0]!.textContent).toContain('AI usage')
+    expect(tabs[1]!.textContent).toContain('Settings')
+    expect(document.querySelector('[data-madrank-settings]')).toBeNull()
+    click(tabs[1]!)
+    expect(document.querySelector('[data-madrank-settings]')).not.toBeNull()
+    // 设置 tab 里也有参与全球排名的确认路径
+    click(document.querySelector('[data-madrank-settings] .mkp-row button'))
+    expect(document.querySelector('.madrank-confirm')).not.toBeNull()
   })
 
   it('Joined 快照（global 经 settings mirror 注入形态）→ 模态渲染 #N + 同源 View race', () => {

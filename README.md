@@ -16,7 +16,7 @@ The core principle is simple: **local tracking runs by default, global ranking i
   <img src="./docs/quick-view.png" alt="MADRank Quick View — rendered from real local data" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="./docs/settings.png" alt="MADRank Settings — configuration panel" width="355">
 </p>
-<p align="center"><sub>Left: sidebar Quick View (real local data) · Right: Settings → MADRank panel</sub></p>
+<p align="center"><sub>Left: sidebar MADRank card (real local data) · Right: the Settings tab inside the same card</sub></p>
 
 ---
 
@@ -82,7 +82,7 @@ Local Usage Store → Finished UTC Day → Aggregated Usage → MADRank Ingest
 **Never uploaded:** prompts, responses, tool arguments, individual request payloads, same-day usage.
 **Uploaded:** daily, per-model aggregated usage only.
 
-Deletion is intentionally split: **Clear Local Data** removes this machine's statistics; **Delete Remote Data** requests removal of the remote rows tied to your anonymous installation identity.
+**Clear local data** lives in the card: MADRank → Settings → Local data → Clear local data (confirmation required). It removes this machine's local statistics from the clearing moment on; days before it no longer appear in the card and are no longer uploaded. Deleting rows already submitted to MADRank is not implemented yet — turn off global ranking and remove `~/.madrank/usage/` to erase the local cache entirely.
 
 ---
 
@@ -172,10 +172,10 @@ Use `link:` not `file:` (`file:` copies the package and breaks source sync). Wit
 
 ```text
 Sidebar → Quick View = VIEW
-Settings → MADRank   = CONFIGURE
+MADRank card → Settings = CONFIGURE
 ```
 
-Quick View shows your usage, 7-day trend, model mix and rank; the share button on the card generates your personal share card. Settings controls the join switch, auto-sync, privacy, local/remote deletion and plugin status.
+The MADRank card shows your usage, 7-day trend, model mix and rank (tab 1: AI usage & rank), and its Settings tab controls the join switch, auto-sync, privacy, local/remote deletion and plugin status. The share button opens the share sheet. The card is opened from the sidebar entry between Plugins and Media Desk.
 
 ---
 
@@ -223,7 +223,7 @@ Scan the QR code to join the DSH plugin community — discuss DSH usage, plugin 
 
 DSH session logs are the source of truth; the plugin reads `sessionProjections` (never SQLite directly), keeps a rebuildable local cache, and keeps daily sync fully isolated from local statistics. All DSH coupling lives in `src/compat.ts` — verifiable via `npm run verify:dsh`.
 
-Integration follows the current official recommendations from the DeepSeek Harness repository (cookbook `docs/cookbook/adding-a-settings-card.md` and the `dsh-session-projection` / `dsh-settings` package references): the projection definition is the official `{ key, stateSchema, init, apply, wire, stateVersion }` shape (zod `ZodType`), the settings namespace registers a schemastery schema through the official register contract (`src/settings-schema.ts`), the sync tick and flush debounce use the official `timer` service when present, and the browser card registers under `settings.plugin.item` keyed by its namespace so the Plugins section pairs it with the served namespace automatically.
+Integration follows the current official plugin model (`cordis-plugin-development` references): the bundle declares `dsh.bundle.patch`; the Host exports `apply(ctx, config)` with `inject` plus a schemastery `Config`, awaits the 0.2.x `sessionProjections.register()` handle and disposes it on unload, and prefers the official `timer` service. The Client is a lazy `window.__ModuleLoader__` factory that registers two additive slots — `settings.section` (the configuration page) and `sidebar.footer.action` (the Quick View entry) — and reads session data through the slot's standard `useSessions` props.
 
 Non-negotiables: never fork DSH · never read internal SQLite directly · never duplicate token-meter semantics · never create an independent session event pipeline · never upload same-day usage · never upload prompts/responses/tool arguments · never let global sync block local statistics.
 
@@ -231,7 +231,7 @@ Non-negotiables: never fork DSH · never read internal SQLite directly · never 
 
 ## Storage
 
-Default directory `~/.madrank/usage/` (override with `MADRANK_USAGE_DIR`): `installation-id`, `usage-store.json`, `card-snapshot.json`, `global-rank.json`, `deleted-epoch`, `cleared-epoch`. The anonymous identity is a locally generated installation UUID; a new machine means a new identity by default.
+Default directory `~/.madrank/usage/` (override with `MADRANK_USAGE_DIR`): `installation-id`, `usage-store.json`, `card-snapshot.json`, `global-rank.json`, `debug.log`. The anonymous identity is a locally generated installation UUID; a new machine means a new identity by default.
 
 ---
 
@@ -256,7 +256,7 @@ TypeScript · React · Zod · Vitest.
 
 Local usage projection, 7/30-day history, top models, streak, Quick View, Settings and the daily aggregated sync protocol are implemented; golden-case and real-traffic reconciliation and DSH compatibility verification pass.
 
-**v0.5.3 targets DSH 0.2.x** (the new plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The Host syncs daily aggregates to MADRank and publishes the accepted race record through a dedicated client-visible projection (`madrankRank`), so the live rank card and share card work on the new model without a custom Remote API.
+**v0.5.12 targets DSH 0.2.2-rc.1** (`engines.dsh: >=0.2.2-rc.1 <0.3.0`; plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The Host syncs daily aggregates to MADRank and publishes the accepted race record through a dedicated client-visible projection (`madrankRank`).
 
 ---
 

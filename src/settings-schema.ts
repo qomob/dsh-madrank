@@ -18,11 +18,17 @@ export const INGEST_ENDPOINT_DEFAULT = 'https://madrank.ai/api/usage/ingest'
 /** 配置字段（全部 volatile：可在设置页即时修改并热更新）。 */
 export const Config = z.object({
   /** 加入全球榜必须显式开启；默认完全离线。 */
-  enabled: z.boolean().default(false).volatile(),
+  enabled: z.boolean().default(false).volatile()
+    .description('参与 MADRank 全球排名（只上传每日聚合，默认关闭）。插件本身的启用/停用请用插件页顶部的开关。'),
   /** MADRank ingest 端点。 */
-  endpoint: z.string().default(INGEST_ENDPOINT_DEFAULT).volatile(),
+  endpoint: z.string().default(INGEST_ENDPOINT_DEFAULT).volatile()
+    .description('MADRank API 地址，默认官方站点；自建/代理时修改。'),
   /** 自动同步每日聚合（默认 true；enabled=false 时同步轮根本不启动）。 */
-  autoSync: z.boolean().default(true).volatile(),
+  autoSync: z.boolean().default(true).volatile()
+    .description('参与排名后，自动同步已结束的 UTC 日聚合数据。'),
+  /** 本地数据清除时间戳（ms）：早于该 UTC 日的历史不再显示/不再上传。 */
+  clearedAt: z.number().default(0).volatile()
+    .description('本地数据清除时间戳；设置后早于该 UTC 日的历史不再显示、也不再上传。'),
 })
 
 /** 解析后的配置形状（readSettings 的返回）。 */
@@ -30,6 +36,8 @@ export interface MadrankUsageSettings {
   enabled: boolean
   endpoint: string
   autoSync: boolean
+  /** 0 = 未清除；否则为该次清除的毫秒时间戳。 */
+  clearedAt: number
 }
 
 /** volatile 字段的冻结引用（schemastery createVolatile 的对外面）。 */
@@ -57,5 +65,6 @@ export function readSettings(raw: unknown): MadrankUsageSettings {
     enabled: enabled === true,
     endpoint: readRef<string>(cfg['endpoint'], INGEST_ENDPOINT_DEFAULT),
     autoSync: readRef<boolean>(cfg['autoSync'], true) !== false,
+    clearedAt: Math.max(0, Math.floor(readRef<number>(cfg['clearedAt'], 0))),
   }
 }

@@ -13,7 +13,7 @@
  * 样式：主题 CSS 变量（非字面色），卡片标记与 settings 卡共用 card-html。
  */
 
-import { createElement, useEffect, useMemo, useRef, useState, Component } from 'react'
+import { createElement, Fragment, useEffect, useMemo, useRef, useState, Component } from 'react'
 import type { ReactElement, ReactPortal, ErrorInfo, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { renderCardHtml, scopeEnabled, formatShareText } from './card-html.ts'
@@ -22,8 +22,11 @@ import { composeGlobalView } from './card-data.ts'
 import { resolveLang, tr, type Lang } from './i18n.ts'
 import { dataTick, useTickSource, activeLocaleValue, resolveActiveLang, setActiveLocale } from './tick.ts'
 import { MadrankSettingsPanel } from './settings-panel.ts'
-import { openShareModal, closeShareModal } from './share-modal.ts'
+import { ShareModal } from './share-modal.ts'
+import { ConfirmDialog } from './confirm.ts'
+import type { ShareModalOptions } from './share-modal.ts'
 import { fetchRaceMe } from '../whoami.ts'
+import { insertTrackedStyle } from './style-registry.ts'
 
 // ── 微观共享状态：数据节拍 + 宿主 locale（实现在 tick.ts；此处转出口保持既有导入面） ──
 
@@ -118,6 +121,12 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
   // 历史范围（会话态视图偏好，不写 settings）：7D 直方 / 30D 密排 / 单日明细
   const [range, setRange] = useState<'7d' | '30d' | 'day'>('7d')
   const [selYmd, setSelYmd] = useState<string | undefined>(undefined)
+  // 分享弹层：React 状态驱动，组件卸载即回收（不再手写 DOM / appendChild）。
+  const [share, setShare] = useState<ShareModalOptions | null>(null)
+  // 弹窗卡片分页：用量与排名 / 功能设置（设置已从宿主设置面板移入卡片）。
+  const [tab, setTab] = useState<'usage' | 'settings'>('usage')
+  // 隐私动作二次确认：加入 / 退出全球排名。
+  const [confirmRank, setConfirmRank] = useState<'join' | 'leave' | null>(null)
   const ref = useRef<HTMLDivElement | null>(null)
 
   // 组装快照：feed 实时数据优先，window fixture 覆盖口其次。
@@ -145,50 +154,52 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
       '<section class="mod"><div class="muted">Card unavailable this tick.</div></section></div>'
   }
 
+  /** 打开分享弹层：同步打开（点击必有响应），再异步刷新服务器真值（2.5s 超时）。 */
+  const openShareFrom = (target: EventTarget | null): void => {
+    try {
+      const el = (target as Element | null)?.closest?.('[data-madrank-share]') ?? null
+      const url = el?.getAttribute('data-share-url')
+      if (!url || el === null) return
+      const cardUrl = el.getAttribute('data-share-card') ?? url
+      const attrText = el.getAttribute('data-share-text') ?? ''
+      setShare({ url, cardUrl, text: attrText, lang: cardLang() })
+      const token = dataTick.get().global?.shareToken
+      if (!token) return
+      const timeout = new Promise<null>((resolve) => { setTimeout(() => resolve(null), 2500) })
+      void Promise.race([
+        fetchRaceMe(url, token, globalThis.fetch.bind(globalThis)).catch(() => null),
+        timeout,
+      ]).then((fresh) => {
+        if (!fresh?.me) return
+        const text = formatShareText(
+          { rank: fresh.me.rank, participants: fresh.participants, race7d: fresh.me.total },
+          fresh.topModel ?? dataTick.get().topModels?.[0]?.model,
+          cardLang(),
+        )
+        setShare((prev) => (prev === null ? prev : { ...prev, text }))
+      })
+    } catch (e) {
+      console.error('[madrank] share open failed', e)
+      const el = (target as Element | null)?.closest?.('[data-madrank-share]') ?? null
+      const url = el?.getAttribute('data-share-url')
+      if (url) setShare({ url, cardUrl: el?.getAttribute('data-share-card') ?? url, text: '', lang: cardLang() })
+    }
+  }
+
   // 绑定卡片内按钮（v0.2 只剩 Join：关闭态的「开启全球排名」转化入口；
   // 退出/删除等配置动作在 Settings → MADRank 面板，见 settings-panel.ts）
   useEffect(() => {
     const rootEl = ref.current
     if (!rootEl) return
     const join = rootEl.querySelector('[data-madrank-join]')
-    const onJoin = (): void => { void Promise.resolve(scope.set('enabled', true)).catch(() => {}); force(x => x + 1) }
+    // 加入/退出全球排名有隐私含义：先弹二次确认，确认后才写配置。
+    const onJoin = (): void => setConfirmRank('join')
     join?.addEventListener('click', onJoin)
-    // 显式退出通道：joined 态卡片直接可关（不再只藏在 Settings 里）
     const leave = rootEl.querySelector('[data-madrank-leave]')
-    const onLeave = (): void => { void Promise.resolve(scope.set('enabled', false)).catch(() => {}); force(x => x + 1) }
+    const onLeave = (): void => setConfirmRank('leave')
     leave?.addEventListener('click', onLeave)
 
-    // 分享:打开分享海报弹层(自动卡片截图 + 可编辑文案 + 复制/下载/带图分享/X)
-    const shareBtn = rootEl.querySelector('[data-madrank-share]')
-    const onShare = (ev: Event): void => {
-      const el = ev.currentTarget as HTMLElement | null
-      const url = el?.getAttribute('data-share-url')
-      if (!url || el === null) return
-      const cardUrl = el.getAttribute('data-share-card') ?? url
-      const attrText = el.getAttribute('data-share-text') ?? ''
-      // 服务器权威刷新:分享前经 /api/usage/me 现取真值重建文案(修复缓存陈旧)
-      const token = dataTick.get().global?.shareToken
-      const openWith = (text: string): void => openShareModal({ url, cardUrl, text, lang: cardLang() })
-      if (!token) {
-        openWith(attrText)
-        return
-      }
-      void (async () => {
-        try {
-          const fresh = await fetchRaceMe(url, token, globalThis.fetch.bind(globalThis))
-          if (fresh?.me) {
-            openWith(formatShareText(
-              { rank: fresh.me.rank, participants: fresh.participants, race7d: fresh.me.total },
-              fresh.topModel ?? dataTick.get().topModels?.[0]?.model,
-              cardLang(),
-            ))
-            return
-          }
-        } catch { /* 回退本地缓存文案 */ }
-        openWith(attrText)
-      })()
-    }
-    shareBtn?.addEventListener('click', onShare)
+    // 分享改由容器的 React onClick 委托（见 openShareFrom）：innerHTML 重建不会丢监听器。
 
     // 范围切换 + 直方柱点击进入单日（同 join/leave 的 data-attr 绑定模式）
     const snap = dataTick.get()
@@ -219,10 +230,8 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
     return () => {
       join?.removeEventListener('click', onJoin)
       leave?.removeEventListener('click', onLeave)
-      shareBtn?.removeEventListener('click', onShare)
       rangeBtns.forEach((b) => b.removeEventListener('click', onRange))
       dayBars.forEach((b) => b.removeEventListener('click', onDayBar))
-      closeShareModal() // 弹层挂 body,React 卸载不会带走它
     }
   }, [scope, tick, scopeTick, range, selYmd])
 
@@ -255,6 +264,39 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
   // 页脚按钮 = 页面正中的模态弹窗：遮罩 + 放大卡片；点遮罩/Esc 关闭。
   // Portal 挂 document.body：fixed 定位若仍落在带 transform/backdrop-filter 的
   // 侧栏祖先内会被收窄，body 挂载彻底逃离任何侧栏层叠上下文与裁剪。
+  const tabButton = (id: 'usage' | 'settings', label: string): ReturnType<typeof createElement> =>
+    createElement('button', {
+      type: 'button',
+      role: 'tab',
+      className: 'madrank-tab',
+      'data-active': String(tab === id),
+      'aria-selected': tab === id,
+      onClick: () => setTab(id),
+    }, label)
+
+  const withOverlays = (node: ReactElement | ReactPortal): ReactElement => createElement(
+    Fragment,
+    null,
+    node,
+    share === null ? null : createElement(ShareModal, {
+      ...share,
+      onClose: () => setShare(null),
+    }),
+    confirmRank === null ? null : createElement(ConfirmDialog, {
+      title: tr(cardLang(), confirmRank === 'join' ? 'confirmJoinTitle' : 'confirmLeaveTitle'),
+      body: tr(cardLang(), confirmRank === 'join' ? 'confirmJoinBody' : 'confirmLeaveBody'),
+      confirmLabel: tr(cardLang(), 'confirmOk'),
+      cancelLabel: tr(cardLang(), 'confirmCancel'),
+      onConfirm: () => {
+        const next = confirmRank === 'join'
+        setConfirmRank(null)
+        void Promise.resolve(scope.set('enabled', next)).catch(() => {})
+        force(x => x + 1)
+      },
+      onCancel: () => setConfirmRank(null),
+    }),
+  )
+
   if (anchored && onClose) {
     const overlay = createElement(
       'div',
@@ -278,25 +320,85 @@ export function CardShell(props: CardShellProps): ReactElement | ReactPortal {
         onClick: onClose,
       } as Record<string, unknown>,
       createElement('div', {
-        ref,
         className: 'madrank-panel madrank-panel-modal',
         style: cardStyle,
-        onClick: (e?: { stopPropagation(): void }) => e?.stopPropagation(),
+        onClick: (e?: { stopPropagation(): void; target?: EventTarget | null }) => {
+          e?.stopPropagation()
+          openShareFrom(e?.target ?? null)
+        },
         onPointerDown: (e?: { stopPropagation(): void }) => e?.stopPropagation(),
-        dangerouslySetInnerHTML: { __html: html },
-      }),
+      },
+        // 分页：功能设置已从宿主设置面板移入卡片
+        createElement('div', { className: 'madrank-tabs', role: 'tablist' },
+          tabButton('usage', tr(cardLang(), 'tabUsage')),
+          tabButton('settings', tr(cardLang(), 'tabSettings')),
+        ),
+        createElement('div', {
+          ref,
+          className: 'madrank-panel-usage',
+          style: tab === 'usage' ? undefined : { display: 'none' },
+          dangerouslySetInnerHTML: { __html: html },
+        }),
+        tab === 'settings'
+          ? createElement('div', { className: 'madrank-settings-pane' },
+              createElement(MadrankSettingsPanel, { scope }))
+          : null,
+      ),
     )
     return typeof document !== 'undefined'
-      ? createPortal(overlay, document.body)
-      : overlay
+      ? withOverlays(createPortal(overlay, document.body))
+      : withOverlays(overlay)
   }
 
   // 内联态（Settings 页卡片）：不约束尺寸，随容器自适应
-  return createElement('div', {
+  return withOverlays(createElement('div', {
     ref,
     className: 'madrank-panel',
+    onClick: (e?: { target?: EventTarget | null }) => openShareFrom(e?.target ?? null),
     dangerouslySetInnerHTML: { __html: html },
-  })
+  }))
+}
+
+// ── 侧栏一级入口（sidebar.panellist 图标）与主区页面（main key） ──────────
+
+/** 侧栏导航图标：MADRank 的 M + 端点，跟随宿主 currentColor / size。 */
+export function MadrankSidebarIcon(props: { size?: number; active?: boolean }): ReturnType<typeof createElement> {
+  const s = props.size ?? 18
+  return createElement(
+    'svg',
+    {
+      width: s, height: s, viewBox: '0 0 24 24', fill: 'none',
+      stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+      'aria-hidden': 'true',
+    },
+    createElement('path', { d: 'M6 18V7l6 6 6-6v11' }),
+    createElement('circle', { cx: 12, cy: 13, r: 1.2, fill: 'currentColor', stroke: 'none' }),
+  )
+}
+
+export interface MadrankOverlayHostProps {
+  scope?: SettingsScopeLike
+  /** 关闭（Esc/遮罩/关闭按钮）后由入口层切回会话面板。 */
+  onClose(): void
+}
+
+/**
+ * 侧栏入口 → 弹窗卡片宿主：主区只放一个占位容器，真正的卡片由 CardShell
+ * 以 frame-wide portal 覆盖整窗（与旧 footer 弹窗同一套 CardShell，位置由侧栏入口决定）。
+ * 关闭时由外部（client/index.ts）调用 layout.selectPanel('conversation') 回到会话。
+ * scope 由外层 withSessionData 延迟解析后注入；缺失时渲染占位而不是静默空白。
+ */
+export function MadrankOverlayHost(props: MadrankOverlayHostProps): ReturnType<typeof createElement> {
+  ensurePanelStyles()
+  useTickSource(dataTick.subscribe)
+  const { scope, onClose } = props
+  if (!scope) {
+    return createElement('div', { className: 'madrank-page' },
+      createElement('p', { className: 'madrank-page-sub' }, tr(cardLang(), 'cardSubtitle')))
+  }
+  return createElement('div', { className: 'madrank-page', 'data-madrank-page': 'true' },
+    createElement(CardErrorBoundary, null,
+      createElement(CardShell, { scope, anchored: true, onClose })))
 }
 
 // ── 侧栏脚部动作组件（wide 行态 / rail 图标态）────────────────
@@ -338,18 +440,47 @@ const PANEL_CSS = [
 '.madrank-foot-count{margin-left:6px;opacity:.75;font-variant-numeric:tabular-nums}',
 '@media (prefers-reduced-motion:no-preference){',
 '  .madrank-foot-btn{transition:background .14s var(--ds-ease-in-out,ease-in-out)}}',
+'/* 主区整页（sidebar.panellist + main key 形态） */',
+'.madrank-page{box-sizing:border-box;width:100%;height:100%;overflow:auto;padding:28px 28px 40px;',
+'  color:var(--dsw-alias-label-primary)}',
+'.madrank-page-inner{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}',
+'.madrank-page-head{display:flex;align-items:center;gap:12px}',
+'.madrank-page-mark{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;',
+'  background:var(--dsw-alias-bg-layer-2, rgba(128,128,128,.14));',
+'  border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3));font-weight:700;font-size:16px}',
+'.madrank-page-title{margin:0;font-size:20px;line-height:28px;font-weight:650}',
+'.madrank-page-sub{margin:2px 0 0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}',
+'.madrank-page-body{display:flex;flex-direction:column;gap:14px}',
+'/* 弹窗卡片 tab（用量与排名 / 功能设置） */',
+'.madrank-tabs{display:flex;gap:2px;margin:-4px 0 14px;border-bottom:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3))}',
+'.madrank-tab{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-secondary);',
+'  font:inherit;font-size:13px;line-height:20px;padding:7px 12px;border-radius:8px 8px 0 0;cursor:pointer}',
+'.madrank-tab:hover{background:var(--dsw-interactive-bg-hover, rgba(128,128,128,.12));color:var(--dsw-alias-label-primary)}',
+'.madrank-tab[data-active="true"]{color:var(--dsw-alias-label-primary);font-weight:600;',
+'  box-shadow:inset 0 -2px 0 var(--dsw-alias-state-business-primary, #6ee7b7)}',
+'.madrank-tab:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary, #6ee7b7);outline-offset:-2px}',
+'.madrank-settings-pane{padding-top:2px}',
+'/* 二次确认弹层（隐私动作） */',
+'.madrank-confirm{position:fixed;inset:0;z-index:2147483002;display:flex;align-items:center;justify-content:center;',
+'  padding:24px;background:rgba(0,0,0,.5)}',
+'.madrank-confirm-panel{width:min(420px,92vw);box-sizing:border-box;border-radius:14px;padding:18px;',
+'  border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35));',
+'  background:var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #1c1c21));',
+'  color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.45)}',
+'.madrank-confirm-title{margin:0 0 8px;font-size:15px;line-height:22px;font-weight:650}',
+'.madrank-confirm-body{margin:0 0 16px;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-secondary)}',
+'.madrank-confirm-actions{display:flex;justify-content:flex-end;gap:8px}',
+'.madrank-confirm-actions button{min-height:32px;border-radius:8px;padding:5px 14px;font:inherit;font-size:13px;',
+'  cursor:pointer;border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35));',
+'  background:var(--dsw-alias-bg-layer-1, rgba(128,128,128,.1));color:inherit}',
+'.madrank-confirm-actions button:hover{background:var(--dsw-interactive-bg-hover, rgba(128,128,128,.16))}',
+'.madrank-confirm-ok{background:var(--dsw-alias-state-business-primary, #6ee7b7)!important;',
+'  border-color:transparent!important;color:#04110b!important;font-weight:700}',
 ].join('')
 
 /** 注入一次（data-plugin-css 去重；与 card-html ensureCardStyles 同范式）。 */
 export function ensurePanelStyles(): void {
-  if (typeof document === 'undefined') return
-  const tagId = 'madrank-usage/' + PANEL_STYLE_ID
-  if (document.querySelector('style[data-plugin-css="' + JSON.stringify(tagId).slice(1, -1) + '"]')) return
-  const tag = document.createElement('style')
-  tag.dataset.plugin = 'madrank-usage'
-  tag.dataset.pluginCss = tagId
-  tag.textContent = PANEL_CSS
-  document.head.appendChild(tag)
+  insertTrackedStyle(PANEL_STYLE_ID, PANEL_CSS)
 }
 
 function fmtCompact(n: number): string {

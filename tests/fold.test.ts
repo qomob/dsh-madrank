@@ -42,6 +42,26 @@ describe('madrankUsage fold', () => {
     expect(applyEvent(s, ev('tool/call', { name: 'x' }))).toBe(s)
   })
 
+  it('驱动语义：命中 usage 的事件必须换 state 引用（0.2.x Object.is 状态门）', () => {
+    // DSH 0.2.x 的 projection registry 先比较 state 引用，未变则跳过 view 计算。
+    // 原地改对象会让 usage 事件被判定“无变化”，onChanged 永不触发（2026-11-04 实机回归）。
+    const s0 = initState()
+    const s1 = applyEvent(s0, usageChunk(1, 1, { i: 100, o: 50 }))
+    expect(s1).not.toBe(s0)
+    expect(buildView(s0).totalRequests).toBe(0) // 旧状态不被改写（不可变）
+
+    const s2 = applyEvent(s1, finalMessage(1, 1, { i: 110, o: 60 }))
+    expect(s2).not.toBe(s1)
+    expect(buildView(s1).totalRequests).toBe(1) // 替换语义只影响新状态
+    expect(buildView(s2).totalRequests).toBe(1)
+    expect(buildView(s2).totalPrimaryTokens).toBe(170)
+
+    // 模型切换也换引用；无关事件仍共享引用
+    const s3 = applyEvent(s2, header('deepseek', 'deepseek-chat'))
+    expect(s3).not.toBe(s2)
+    expect(applyEvent(s3, ev('tool/call', {}))).toBe(s3)
+  })
+
   it('基础累计：chunk + message 各一次，四桶与请求数正确', () => {
     const s = run(initState(),
       header('deepseek', 'deepseek-chat'),

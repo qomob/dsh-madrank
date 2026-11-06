@@ -13,11 +13,15 @@ export class UsageStore {
     file;
     stateVersion;
     data;
+    /** 本地数据清除时间戳（ms）；0 = 未清除。早于该 UTC 日的历史不入账、不上传。 */
+    clearedAtMs = 0;
     // 不用 TS 参数属性 —— Node 原生 strip-types 不支持，插件必须可零转译加载
-    constructor(dataDir, stateVersion = 2, fileName = 'usage-store.json') {
+    constructor(dataDir, stateVersion = 2, fileName = 'usage-store.json', clearedAtMs = 0) {
         this.stateVersion = stateVersion;
         this.file = join(dataDir, fileName);
         this.data = this.load();
+        if (clearedAtMs > 0)
+            this.setClearedAt(clearedAtMs);
     }
     load() {
         try {
@@ -32,6 +36,35 @@ export class UsageStore {
         }
         return emptyStore();
     }
+    /** 清除阈值：早于这一 UTC 日（ymd < cutoff）的历史一律丢弃。 */
+    cutoffYmd() {
+        return this.clearedAtMs > 0 ? new Date(this.clearedAtMs).toISOString().slice(0, 10) : null;
+    }
+    /** 设置/更新本地数据清除点，并就地裁剪已存历史。返回是否有数据被清掉。 */
+    setClearedAt(ms) {
+        const next = Math.max(0, Math.floor(ms));
+        if (next === this.clearedAtMs)
+            return false;
+        this.clearedAtMs = next;
+        const cutoff = this.cutoffYmd();
+        if (cutoff === null)
+            return false;
+        let dropped = false;
+        for (const [sid, slice] of Object.entries(this.data.sessions)) {
+            const kept = {};
+            for (const [ymd, day] of Object.entries(slice.days)) {
+                if (ymd >= cutoff)
+                    kept[ymd] = day;
+                else
+                    dropped = true;
+            }
+            if (Object.keys(kept).length === 0)
+                delete this.data.sessions[sid];
+            else
+                slice.days = kept;
+        }
+        return dropped;
+    }
     flush() {
         mkdirSync(dirname(this.file), { recursive: true });
         const tmp = this.file + '.tmp';
@@ -39,11 +72,17 @@ export class UsageStore {
         renameSync(tmp, this.file);
     }
     replaceSession(sessionId, seq, view) {
-        if (Object.keys(view.days).length === 0) {
+        const cutoff = this.cutoffYmd();
+        const days = {};
+        for (const [ymd, day] of Object.entries(view.days)) {
+            if (cutoff === null || ymd >= cutoff)
+                days[ymd] = structuredCloneish(day);
+        }
+        if (Object.keys(days).length === 0) {
             delete this.data.sessions[sessionId];
             return;
         }
-        this.data.sessions[sessionId] = { seq, days: structuredCloneish(view.days) };
+        this.data.sessions[sessionId] = { seq, days };
     }
     markUploaded(ymd, endpoint) {
         this.data.uploadedDays[ymd] = { at: Date.now(), endpoint };
@@ -60,8 +99,11 @@ export class UsageStore {
     /** 机器级聚合（按日）。跨会话重叠不扣减。 */
     aggregateDays() {
         const out = {};
+        const cutoff = this.cutoffYmd();
         for (const s of Object.values(this.data.sessions)) {
             for (const [ymd, day] of Object.entries(s.days)) {
+                if (cutoff !== null && ymd < cutoff)
+                    continue;
                 const dst = (out[ymd] ??= { models: {}, activeSeconds: 0 });
                 for (const [modelKey, b] of Object.entries(day.models)) {
                     const acc = (dst.models[modelKey] ??= {

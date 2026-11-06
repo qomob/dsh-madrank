@@ -9,7 +9,8 @@
  *    tests/reconcile.test.ts + tools/reference-token-meter.ts）。
  * 4. 模型归因来自最近一次 request/header；waterfall 换模会落新 header ——
  *    已知限制：同 step 内换模时，全局总量仍精确，仅分桶归因切在 header 点。
- * 5. 全部函数同步纯函数；状态可 JSON 化。
+ * 5. 全部函数同步纯函数；状态可 JSON 化。命中事件必须返回**新 state 引用**
+ *    （DSH 0.2.x 注册表的 Object.is 状态门依赖引用变化触发 view / onChanged）。
  *
  * v2 新增：活跃时长。按 UTC 日记录 [start,end] 合并分段：
  * 相邻样本间隔 ≤ ACTIVITY_GAP_MS 视为同段；段数超 CAP 时并入尾段（保守近似）。
@@ -79,30 +80,48 @@ export function ymdOf(timeMs: number): string {
   return new Date(timeMs).toISOString().slice(0, 10)
 }
 
-function slotFor(state: MadrankState, ymd: string, modelKey: string): ModelBuckets {
-  const dayModels = (state.days[ymd] ??= {})
-  return (dayModels[modelKey] ??= zeroBuckets())
+function withModels(
+  days: MadrankState['days'],
+  originalDays: MadrankState['days'],
+  ymd: string,
+): Record<string, ModelBuckets> {
+  const current = days[ymd]
+  // 已在本轮事件里复制过（不是旧状态里的引用）→ 直接复用这份可变副本
+  if (current !== undefined && current !== originalDays[ymd]) return current
+  const next: Record<string, ModelBuckets> = { ...(originalDays[ymd] ?? {}) }
+  days[ymd] = next
+  return next
+}
+
+function withBucket(
+  models: Record<string, ModelBuckets>,
+  original: Record<string, ModelBuckets> | undefined,
+  modelKey: string,
+): ModelBuckets {
+  const current = models[modelKey]
+  if (current !== undefined && current !== original?.[modelKey]) return current
+  const next = current === undefined ? zeroBuckets() : { ...current }
+  models[modelKey] = next
+  return next
 }
 
 /** 纯函数：把一个时间点合入某日活跃分段（升序且归并不重叠区间）。 */
-function recordActivity(state: MadrankState, timeMs: number): void {
-  const ymd = ymdOf(timeMs)
-  const segs = (state.activity[ymd] ??= [])
+function withActivity(state: MadrankState, ymd: string, timeMs: number): MadrankState['activity'] {
+  const segs: Array<[number, number]> = (state.activity[ymd] ?? []).slice()
 
   // 尾段扩展（最常见路径）
   const tail = segs[segs.length - 1]
   if (tail && timeMs - tail[1] <= ACTIVITY_GAP_MS) {
-    if (timeMs > tail[1]) tail[1] = timeMs
-    return
+    if (timeMs > tail[1]) segs[segs.length - 1] = [tail[0], timeMs]
+  } else if (segs.length >= MAX_SEGMENTS_PER_DAY) {
+    // 保守并入尾段：宁可低估活跃，不凭空拉长 —— 保证是使用时长的下界估计
+    if (tail) segs[segs.length - 1] = [tail[0], Math.max(tail[1], timeMs)]
+    else segs.push([timeMs, timeMs])
+  } else {
+    segs.push([timeMs, timeMs])
   }
 
-  if (segs.length >= MAX_SEGMENTS_PER_DAY) {
-    // 保守并入尾段：宁可低估活跃，不凭空拉长 —— 保证是使用时长的下界估计
-    if (tail) tail[1] = Math.max(tail[1], timeMs)
-    else segs.push([timeMs, timeMs])
-    return
-  }
-  segs.push([timeMs, timeMs])
+  return { ...state.activity, [ymd]: segs }
 }
 
 function activeSecondsOf(segs: Array<[number, number]> | undefined): number {
@@ -112,6 +131,11 @@ function activeSecondsOf(segs: Array<[number, number]> | undefined): number {
   return Math.round(ms / 1000)
 }
 
+/**
+ * 纯转移：命中 usage 时必须返回**新的 state 引用**（0.2.x 注册表用 `Object.is(state)`
+ * 做第一道门；原地改对象会被判定“状态未变”，view 不计算、onChanged 永不触发）。
+ * 只为受影响的日子 / 模型桶复制新对象，其余结构保持引用共享。
+ */
 function sample(
   state: MadrankState,
   turn: number,
@@ -119,8 +143,7 @@ function sample(
   timeMs: number,
   usage: TokenUsageBuckets,
 ): MadrankState {
-  recordActivity(state, timeMs)
-
+  const ymd = ymdOf(timeMs)
   const modelKey = state.currentModelKey ?? 'unknown/unknown'
   const buckets = fromUsage(usage)
   const prev =
@@ -128,11 +151,21 @@ function sample(
       ? state.last
       : null
 
-  if (prev !== null) subFrom(slotFor(state, prev.ymd, prev.modelKey), prev.buckets)
-  addInto(slotFor(state, ymdOf(timeMs), modelKey), buckets)
-  state.last = { turn, step, ymd: ymdOf(timeMs), modelKey, buckets }
+  const days: MadrankState['days'] = { ...state.days }
+  if (prev !== null) {
+    subFrom(
+      withBucket(withModels(days, state.days, prev.ymd), state.days[prev.ymd], prev.modelKey),
+      prev.buckets,
+    )
+  }
+  addInto(withBucket(withModels(days, state.days, ymd), state.days[ymd], modelKey), buckets)
 
-  return state
+  return {
+    currentModelKey: state.currentModelKey,
+    days,
+    activity: withActivity(state, ymd, timeMs),
+    last: { turn, step, ymd, modelKey, buckets },
+  }
 }
 
 /** 纯转移函数。无关事件必须返回同一引用（零下游工作）。 */

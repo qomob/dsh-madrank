@@ -60,11 +60,14 @@ export function extractViews(snap: SessionsListSnapshotLike | undefined): UsageV
   return out
 }
 
-/** 跨会话求和。activeSeconds 取最大者（与 store 的保守口径一致）。 */
-export function mergeViews(views: UsageView[]): DayAggregate {
+/** 跨会话求和。activeSeconds 取最大者（与 store 的保守口径一致）。
+ *  clearedAtMs > 0 时，早于该 UTC 日的历史一律不计（「清除本地数据」语义）。 */
+export function mergeViews(views: UsageView[], clearedAtMs = 0): DayAggregate {
   const agg: DayAggregate = {}
+  const cutoff = clearedAtMs > 0 ? new Date(clearedAtMs).toISOString().slice(0, 10) : null
   for (const view of views) {
     for (const [ymd, day] of Object.entries(view.days)) {
+      if (cutoff !== null && ymd < cutoff) continue
       const dst = (agg[ymd] ??= { models: {}, activeSeconds: 0 })
       for (const [modelKey, b] of Object.entries(day.models)) {
         const acc = (dst.models[modelKey] ??= {
@@ -96,6 +99,7 @@ function buildHistory(agg: DayAggregate, nowMs: number): CardDayEntry[] {
 export function cardDataFromList(
   snap: SessionsListSnapshotLike | undefined,
   nowMs: number,
+  clearedAtMs = 0,
 ): {
   today: ReturnType<typeof todayCard>
   topModels: ReturnType<typeof topModels>
@@ -103,7 +107,7 @@ export function cardDataFromList(
   last7: Array<{ ymd: string; primaryTokens: number }>
   history: CardDayEntry[]
 } {
-  const agg = mergeViews(extractViews(snap))
+  const agg = mergeViews(extractViews(snap), clearedAtMs)
   return {
     today: todayCard(agg, nowMs),
     topModels: topModels(agg, new Date(nowMs).toISOString().slice(0, 10)),
@@ -123,6 +127,8 @@ export interface SettingsSectionValue {
   endpoint: string | undefined
   /** 自动同步每日用量（默认 true；参与排名关闭时宿主根本不启动同步轮）。 */
   autoSync: boolean
+  /** 本地数据清除时间戳（ms）；0 = 未清除。 */
+  clearedAt?: number
 }
 
 /**

@@ -12,6 +12,7 @@
 
 import { fmtActive, fmtAgo, resolveLang, tr, WEEKDAYS, type Lang } from './i18n.ts'
 import type { CardGlobal } from '../global-rank.ts'
+import { insertTrackedStyle } from './style-registry.ts'
 
 export type { CardGlobal } from '../global-rank.ts'
 
@@ -304,14 +305,7 @@ const LG_CSS = [
 
 /** 样式注入一次（官方 data-plugin-css 去重范式）；预览工具可 opts.style 内联。 */
 export function ensureCardStyles(): void {
-  if (typeof document === 'undefined') return
-  const tagId = 'madrank-usage/' + STYLE_ID
-  if (document.querySelector('style[data-plugin-css="' + JSON.stringify(tagId).slice(1, -1) + '"]')) return
-  const tag = document.createElement('style')
-  tag.dataset.plugin = 'madrank-usage'
-  tag.dataset.pluginCss = tagId
-  tag.textContent = CSS + LG_CSS
-  document.head.appendChild(tag)
+  insertTrackedStyle(STYLE_ID, CSS + LG_CSS)
 }
 
 // ── 模块渲染 ─────────────────────────────────────

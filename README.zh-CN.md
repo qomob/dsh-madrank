@@ -28,7 +28,7 @@ Today / 7 Days / Models / Streak
   <img src="./docs/quick-view.png" alt="MADRank Quick View — 真实本地数据渲染" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="./docs/settings.png" alt="MADRank Settings — 配置面板" width="355">
 </p>
-<p align="center"><sub>左：侧栏 Quick View（真实本地数据）· 右：Settings → MADRank 配置面板</sub></p>
+<p align="center"><sub>左：侧栏 MADRank 弹窗卡片（真实本地数据）· 右：同一张卡片里的「功能设置」tab</sub></p>
 
 你可以先把它当成一个**私人 AI 使用仪表盘**，也可以选择加入全球排名，看看：
 
@@ -114,10 +114,7 @@ Local Usage Store → Finished UTC Day → Aggregated Usage → MADRank Ingest
 
 ### 数据删除
 
-* **清除本地数据** — 只删除本机 MADRank usage 数据，不影响远端。
-* **删除已同步数据** — 请求删除当前安装身份对应的远端 usage 数据。
-
-本地删除和远端删除是两个独立操作。
+**清除本地数据**在卡片里：MADRank → 功能设置 → 本地数据 → 清除本地数据（需二次确认）。清除后早于清除日的历史不再显示、也不再上传；已提交到 MADRank 的排名数据暂不支持从应用内删除——可先关闭「参与全球排名」，再删 `~/.madrank/usage/` 目录彻底清空本地缓存。
 
 ---
 
@@ -156,7 +153,7 @@ MATCH ✓
 
 然后**完整退出并重开 app**（profile 组合只在启动时加载，刷新页面不够）。若管理器未自动挂载，补上下面的挂载条目后再重启。
 
-> **v0.5.3 适配 DSH 0.2.x**（新版插件模型：`Config` + `configForms` + slot props 会话数据）。旧版 DSH 上浏览器半侧会等待激活 —— 请先升级 DSH。Host 半侧照常每日同步聚合数据，并把服务端返回的排名记录通过独立客户端可见投影（`madrankRank`）发布，因此实时排名卡与分享卡在新模型下照常可用。
+> **v0.5.12 适配 DSH 0.2.2-rc.1**（`engines.dsh: >=0.2.2-rc.1 <0.3.0`；插件模型：`Config` + `configForms` + slot props 会话数据）。旧版 DSH 上浏览器半侧会等待激活 —— 请先升级 DSH。Host 半侧照常每日同步聚合数据，并把服务端返回的排名记录通过独立客户端可见投影（`madrankRank`）发布，因此实时排名卡与分享卡在新模型下照常可用。
 
 ### 方式二：命令行（适用于任意 profile：`desktop`、`web`…）
 
@@ -211,10 +208,10 @@ dsh plugin --profile desktop add 'link:/absolute/path/to/dsh-madrank'
 
 ```text
 Sidebar → Quick View = VIEW（看数据）
-Settings → MADRank   = CONFIGURE（改配置）
+MADRank 卡片 → 功能设置 = CONFIGURE（改配置）
 ```
 
-Quick View 查看使用情况、7 日趋势、模型分布与 Rank；点击卡片上的分享按钮即可生成专属分享卡片。Settings 负责参与排名开关、自动同步、隐私、本地/远端数据删除与插件状态。
+侧栏 MADRank 入口打开弹窗卡片：第一个 tab「AI 用量与排名」看使用情况、7 日趋势、模型分布与 Rank；第二个 tab「功能设置」负责参与排名开关、自动同步、隐私、数据删除与插件状态；分享按钮在卡片内生成专属分享卡片。
 
 ---
 
@@ -279,12 +276,12 @@ Never let global sync block local usage
 
 对 DSH 的全部耦合集中在 `src/compat.ts`，可用 `npm run verify:dsh` 验证。
 
-集成层遵循 DeepSeek Harness 官方仓库的现行推荐（cookbook `docs/cookbook/adding-a-settings-card.md` +
-`dsh-session-projection` / `dsh-settings` 包参考）：投影定义为官方
-`{ key, stateSchema, init, apply, wire, stateVersion }` 形状（zod `ZodType` 校验）；
-设置命名空间以官方 schemastery schema 注册（`src/settings-schema.ts`，取代旧 zod
-可调用适配器 + 手写 toJSON 图）；同步 tick 与落盘去抖优先用官方 `timer` 服务；
-浏览器配置卡注册在 `settings.plugin.item`，键 = 命名空间，与宿主服务的命名空间自动配对。
+集成层遵循当前官方插件模型（`cordis-plugin-development` references）：bundle 声明
+`dsh.bundle.patch`；Host 导出 `apply(ctx, config)` + `inject` + schemastery `Config`，
+按 0.2.x 契约 `await sessionProjections.register()` 并在卸载时 `handle.dispose()`，
+计时优先用官方 `timer` 服务；Client 是 `window.__ModuleLoader__` 懒工厂，注册两个
+additive 槽位 —— `settings.section`（配置页）与 `sidebar.footer.action`（Quick View 入口），
+会话数据走槽位标准 props 的 `useSessions`。
 
 ---
 
@@ -327,7 +324,7 @@ dsh-madrank/
 
 ## 数据与存储
 
-默认数据目录 `~/.madrank/usage/`，可用 `MADRANK_USAGE_DIR` 覆盖。典型文件：`installation-id`、`usage-store.json`、`card-snapshot.json`、`global-rank.json`、`deleted-epoch`、`cleared-epoch`。匿名安装 ID 是本机生成的 UUID，换机器默认视为新身份。
+默认数据目录 `~/.madrank/usage/`，可用 `MADRANK_USAGE_DIR` 覆盖。典型文件：`installation-id`、`usage-store.json`、`card-snapshot.json`、`global-rank.json`、`debug.log`。匿名安装 ID 是本机生成的 UUID，换机器默认视为新身份。
 
 ---
 
@@ -350,7 +347,7 @@ npm run preview           # 用本地真实数据渲染卡片预览页
 
 ## 当前状态
 
-本地 usage projection、7 日/30 日历史、Top Models、Streak、Quick View、Settings、本地清除、远端删除、日级聚合同步、golden cases 与真实流量对账、DSH 兼容性验证——**均已完成**。全球排名已接入线上 ingest（madrank.ai）；**分享链路完整可用**：专属分享链接、服务端动态社交卡片图、双语分享文案，分享前通过服务器权威接口（`/api/usage/me`）自动刷新数字。当前版本 v0.3.6。
+本地 usage projection、7 日/30 日历史、Top Models、Streak、Quick View、Settings、日级聚合同步、golden cases 与真实流量对账、DSH 兼容性验证——均已完成；本地清除/远端删除尚未提供应用内入口（见「数据删除」）。全球排名已接入线上 ingest（madrank.ai）；**分享链路完整可用**：专属分享链接、服务端动态社交卡片图、双语分享文案，分享前通过服务器权威接口（`/api/usage/me`）自动刷新数字。当前版本 v0.5.9。
 
 ---
 

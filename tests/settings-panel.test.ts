@@ -98,20 +98,43 @@ describe('Settings → MADRank 配置面板（v0.2 交互规范）', () => {
     expect(document.querySelector('.mkp-tag')?.getAttribute('data-on')).toBe('true')
   })
 
-  it('「参与全球排名」真开关：off → set("enabled", true)；on → set("enabled", false)', () => {
+  it('「参与全球排名」真开关：off → 确认后 set("enabled", true)；on → 确认后 set("enabled", false)', () => {
     const setSpy = vi.fn()
     mount(createElement(MadrankSettingsPanel, { scope: makeScope({}, setSpy) }))
     const sw = switchBtn('Participate in MADRank global ranking')
     expect(sw?.getAttribute('aria-checked')).toBe('false')
     act(() => { sw?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    // 隐私动作：先确认，未确认不写
+    expect(setSpy).not.toHaveBeenCalled()
+    act(() => { document.querySelector('.madrank-confirm-ok')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     expect(setSpy).toHaveBeenCalledWith('enabled', true)
     act(() => { root?.unmount() })
+    document.body.innerHTML = ''
     const setSpy2 = vi.fn()
     mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true }, setSpy2) }))
     const sw2 = switchBtn('Participate in MADRank global ranking')
     expect(sw2?.getAttribute('aria-checked')).toBe('true')
     act(() => { sw2?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    act(() => { document.querySelector('.madrank-confirm-ok')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     expect(setSpy2).toHaveBeenCalledWith('enabled', false)
+  })
+
+  it('「清除本地数据」：先确认，确认后 set("clearedAt", <ms>)', () => {
+    const setSpy = vi.fn()
+    mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true }, setSpy) }))
+    const btn = Array.from(document.querySelectorAll('.mkp-btn'))
+      .find(b => b.textContent === 'Clear local data') as HTMLButtonElement | undefined
+    expect(btn).toBeTruthy()
+    act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    // 破坏性动作：先确认，未确认不写
+    expect(document.querySelector('.madrank-confirm')).not.toBeNull()
+    expect(setSpy).not.toHaveBeenCalled()
+    act(() => { document.querySelector('.madrank-confirm-ok')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(setSpy).toHaveBeenCalledTimes(1)
+    const [field, value] = setSpy.mock.calls[0]!
+    expect(field).toBe('clearedAt')
+    expect(typeof value).toBe('number')
+    expect(Number(value)).toBeGreaterThan(0)
   })
 
   it('「自动同步」依赖排名开启：off 禁用 + hint；on 可切（set("autoSync", …)）', () => {

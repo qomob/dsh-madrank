@@ -123,6 +123,16 @@ const en = {
   sPluginName: 'MADRank DSH Plugin',
   sStatus: 'Status',
   sPluginEnabled: 'Enabled',
+  /* ── 卡片 tab / 确认弹层（v0.5.8） ── */
+  tabUsage: 'AI usage & rank',
+  tabSettings: 'Settings',
+  confirmJoinTitle: 'Join the global ranking?',
+  confirmJoinBody: 'Only daily aggregated token counts and model names are uploaded — never prompts, responses, files, or API keys. You can leave at any time.',
+  confirmLeaveTitle: 'Leave the global ranking?',
+  confirmLeaveBody: 'Uploads stop immediately. Your local usage statistics stay on this device and are not affected.',
+  confirmOk: 'Confirm',
+  confirmCancel: 'Cancel',
+  sMoveHint: 'MADRank settings now live in the sidebar entry: MADRank → Settings.',
   sInstallGuide: 'Install guide',
 } as const
 
@@ -232,10 +242,23 @@ const zh: Record<DictKey, string> = {
   sPluginName: 'MADRank DSH Plugin',
   sStatus: '状态',
   sPluginEnabled: '已启用',
+  /* ── 卡片 tab / 确认弹层（v0.5.8） ── */
+  tabUsage: 'AI 用量与排名',
+  tabSettings: '功能设置',
+  confirmJoinTitle: '加入全球排名？',
+  confirmJoinBody: '只上传每日聚合的 token 数与模型名，绝不上传 Prompt、回复、文件或 API Key。你可以随时退出。',
+  confirmLeaveTitle: '退出全球排名？',
+  confirmLeaveBody: '将立即停止上传；本机用量统计保留在这台设备上，不受影响。',
+  confirmOk: '确认',
+  confirmCancel: '取消',
+  sMoveHint: 'MADRank 的设置已移到侧栏入口：MADRank → 功能设置。',
   sInstallGuide: '安装说明',
 }
 
 const DICTS: Record<Lang, Record<DictKey, string>> = { en, zh }
+
+/** 提供给宿主 locale 服务登记的字典（register(ns, locale, dict)）。 */
+export const LOCALE_RESOURCES: Record<Lang, Record<string, string>> = { en, zh }
 
 /** 取词 + {name} 插值；缺键回退 en，再缺回显 key（fail loud，对齐官方 lookup 链）。 */
 export function tr(lang: Lang, key: DictKey, vars?: Record<string, string | number>): string {

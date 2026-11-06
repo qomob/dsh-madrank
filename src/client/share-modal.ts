@@ -1,12 +1,18 @@
+/// <reference lib="dom" />
+
 /**
- * share-modal.ts — 分享弹层(浏览器半侧,零依赖 vanilla DOM)。
+ * share-modal.tsx — 分享海报弹层（React 组件，官方 slot/portal 形态）。
  *
- * 交互形态对齐"分享海报"模式:点击分享 → 自动卡片截图(服务端 OG 图,
- * 带二维码) + 可编辑文案 + 复制/下载/系统带图分享/X。
- * 一次性 overlay 挂 document.body;重复打开先清场;ESC/背板/×关闭。
- * 视觉走 --dsw-alias-* 宿主主题变量(带回退),与卡片语言一致。
+ * 契约：
+ * - 由 CardShell 用 React 状态挂载，`createPortal` 到 document.body（fixed overlay 的标准做法，
+ *   slot 目录也要求 fixed overlay portal 到 body 才能逃离侧栏裁剪）；卸载即回收，无残留 DOM。
+ * - 不再手写 DOM / appendChild / 模块级监听器；样式是组件内 `<style>`，随组件卸载移除。
+ * - 保留原有能力：卡片图、可编辑文案、复制文案/链接、下载卡片、系统带图分享、分享到 X；
+ *   捕获阶段接管 Escape，只关分享层、不连坐下层 Quick View 卡片。
  */
 
+import { createElement, useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { tr, type Lang } from './i18n.ts'
 
 export interface ShareModalOptions {
@@ -14,9 +20,13 @@ export interface ShareModalOptions {
   cardUrl: string
   /** 分享落地链接。 */
   url: string
-  /** 预填文案(可编辑)。 */
+  /** 预填文案（可编辑）。 */
   text: string
   lang: Lang
+}
+
+export interface ShareModalProps extends ShareModalOptions {
+  onClose(): void
 }
 
 const ID = 'madrank-share-modal'
@@ -56,19 +66,7 @@ const css = [
   '@keyframes mks-in{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}',
 ].join('\n')
 
-function ensureStyles(): void {
-  if (document.getElementById(ID + '-style')) return
-  const s = document.createElement('style')
-  s.id = ID + '-style'
-  s.textContent = css
-  document.head.appendChild(s)
-}
-
-function flash(btn: HTMLButtonElement, lang: Lang, ok: boolean): void {
-  const prev = btn.textContent
-  btn.textContent = tr(lang, ok ? 'shareCopied' : 'shareCopyFailed')
-  setTimeout(() => { btn.textContent = prev }, 1400)
-}
+type Feedback = 'text' | 'link' | 'download' | 'native' | 'fail'
 
 async function copyText(v: string): Promise<boolean> {
   try {
@@ -99,135 +97,139 @@ async function fetchCardBlob(cardUrl: string): Promise<Blob | null> {
   }
 }
 
-/** 打开分享弹层(幂等:已开先关)。 */
-export function openShareModal(opts: ShareModalOptions): void {
-  closeShareModal()
-  ensureStyles()
-  const lang = opts.lang
+/** 分享海报弹层。 */
+export function ShareModal(props: ShareModalProps): ReturnType<typeof createPortal> | null {
+  const { cardUrl, url, text, lang, onClose } = props
+  const [value, setValue] = useState<string>(() => text + '\n' + url)
+  // 用户改过文案后，服务器刷新回来的 text 不再覆盖输入
+  const [dirty, setDirty] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const root = document.createElement('div')
-  root.id = ID
+  const showFeedback = useCallback((kind: Feedback): void => {
+    setFeedback(kind)
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = setTimeout(() => { setFeedback(null); timer.current = null }, 1400)
+  }, [])
 
-  const panel = document.createElement('div')
-  panel.className = 'mks-panel'
-  panel.setAttribute('role', 'dialog')
-  panel.setAttribute('aria-modal', 'true')
-  panel.setAttribute('aria-label', tr(lang, 'shareModalTitle'))
+  // 打开后服务器刷新回来的真值文案（未编辑时跟随）
+  useEffect(() => {
+    if (!dirty) setValue(text + '\n' + url)
+  }, [text, url, dirty])
 
-  const head = document.createElement('div')
-  head.className = 'mks-head'
-  const title = document.createElement('div')
-  title.className = 'mks-title'
-  title.textContent = tr(lang, 'shareModalTitle')
-  const close = document.createElement('button')
-  close.className = 'mks-close'
-  close.type = 'button'
-  close.setAttribute('aria-label', tr(lang, 'shareClose'))
-  close.textContent = '\u2715'
-  head.append(title, close)
+  // 捕获阶段接管 Escape：只关分享层，不连坐关掉压在下面的 Quick View 卡片模态。
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      if (ev.key !== 'Escape') return
+      ev.stopPropagation()
+      onClose()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [onClose])
 
-  const img = document.createElement('img')
-  img.className = 'mks-card'
-  img.src = opts.cardUrl
-  img.alt = tr(lang, 'shareCardAlt')
+  // 组件卸载时清掉仍在计时的反馈定时器。
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = null
+  }, [])
 
-  const hint = document.createElement('p')
-  hint.className = 'mks-hint'
-  hint.textContent = tr(lang, 'shareQrHint')
+  const flashable = (base: string, key: Feedback): string =>
+    feedback === key ? tr(lang, 'shareCopied') : feedback === 'fail' && key === 'text' ? tr(lang, 'shareCopyFailed') : base
 
-  const editHint = document.createElement('p')
-  editHint.className = 'mks-hint'
-  editHint.textContent = tr(lang, 'shareEditHint')
-
-  const ta = document.createElement('textarea')
-  ta.className = 'mks-text'
-  ta.value = opts.text + '\n' + opts.url
-
-  const actions = document.createElement('div')
-  actions.className = 'mks-actions'
-
-  const mk = (label: string, onClick: (btn: HTMLButtonElement) => void, cls?: string): HTMLButtonElement => {
-    const b = document.createElement('button')
-    b.type = 'button'
-    b.textContent = label
-    if (cls) b.className = cls
-    b.addEventListener('click', () => { void onClick(b) })
-    return b
+  const runCopy = (payload: string, key: Feedback): void => {
+    void copyText(payload).then((ok) => showFeedback(ok ? key : 'fail'))
   }
 
-  const btnCopyText = mk(tr(lang, 'shareCopyText'), async (b) => flash(b, lang, await copyText(ta.value)))
-  const btnCopyLink = mk(tr(lang, 'shareCopyLink'), async (b) => flash(b, lang, await copyText(opts.url)))
-  const btnDownload = mk(tr(lang, 'shareDownload'), async (b) => {
-    root.setAttribute('data-busy', 'true')
-    const blob = await fetchCardBlob(opts.cardUrl)
-    root.removeAttribute('data-busy')
-    if (blob === null) {
-      window.open(opts.cardUrl, '_blank', 'noopener,noreferrer')
-      return
-    }
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = 'madrank-card.png'
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000)
-    flash(b, lang, true)
-  })
-  const btnX = mk(tr(lang, 'shareX'), () => {
-    const intent = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(ta.value.split('\n')[0] ?? '') +
-      '&url=' + encodeURIComponent(opts.url)
-    window.open(intent, '_blank', 'noopener,noreferrer')
-  })
+  const download = (): void => {
+    setBusy(true)
+    void fetchCardBlob(cardUrl).then((blob) => {
+      setBusy(false)
+      if (blob === null) {
+        window.open(cardUrl, '_blank', 'noopener,noreferrer')
+        return
+      }
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'madrank-card.png'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000)
+      showFeedback('download')
+    })
+  }
 
-  actions.append(btnCopyText, btnCopyLink, btnDownload, btnX)
-
-  // 系统带图分享(支持 files 的平台才有;不可用则不显示)
   type ShareCapable = Navigator & {
     canShare?: (data: { files?: File[] }) => boolean
     share?: (data: { files?: File[]; text?: string; url?: string }) => Promise<void>
   }
   const nav = navigator as ShareCapable
-  if (typeof nav.share === 'function') {
-    const btnNative = mk(tr(lang, 'shareNative'), async (b) => {
-      root.setAttribute('data-busy', 'true')
+  const canNativeShare = typeof nav.share === 'function'
+
+  const nativeShare = (): void => {
+    setBusy(true)
+    void (async () => {
       let file: File | null = null
       try {
-        const blob = await fetchCardBlob(opts.cardUrl)
+        const blob = await fetchCardBlob(cardUrl)
         if (blob !== null && typeof nav.canShare === 'function') {
           const f = new File([blob], 'madrank-card.png', { type: 'image/png' })
           if (nav.canShare({ files: [f] })) file = f
         }
       } catch { /* 降级为纯文本分享 */ }
-      root.removeAttribute('data-busy')
+      setBusy(false)
       try {
         await nav.share!(file !== null
-          ? { files: [file], text: ta.value.split('\n')[0] ?? '', url: opts.url }
-          : { text: ta.value, url: opts.url })
+          ? { files: [file], text: value.split('\n')[0] ?? '', url }
+          : { text: value, url })
       } catch { /* 用户取消 */ }
-      flash(b, lang, true)
-    }, 'mks-primary')
-    actions.append(btnNative)
+      showFeedback('native')
+    })()
   }
 
-  panel.append(head, img, hint, editHint, ta, actions)
-  root.appendChild(panel)
-  root.addEventListener('click', (ev) => { if (ev.target === root) closeShareModal() })
-  close.addEventListener('click', closeShareModal)
-  // 捕获阶段接管 Escape:只关分享层,不连坐关掉压在下面的 Quick View 卡片模态
-  const onKey = (ev: KeyboardEvent): void => {
-    if (ev.key === 'Escape') {
-      ev.stopPropagation()
-      closeShareModal()
-      document.removeEventListener('keydown', onKey, true)
-    }
+  const shareX = (): void => {
+    const intent = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(value.split('\n')[0] ?? '') +
+      '&url=' + encodeURIComponent(url)
+    window.open(intent, '_blank', 'noopener,noreferrer')
   }
-  document.addEventListener('keydown', onKey, true)
-  document.body.appendChild(root)
-}
 
-export function closeShareModal(): void {
-  document.getElementById(ID)?.remove()
-}
+  const btn = (label: string, onClick: () => void, cls?: string): ReturnType<typeof createElement> =>
+    createElement('button', { type: 'button', className: cls, onClick }, label)
 
-export function shareModalOpen(): boolean {
-  return document.getElementById(ID) !== null
+  const root = createElement('div', {
+    id: ID,
+    'data-busy': busy ? 'true' : undefined,
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+  },
+  createElement('style', { id: ID + '-style' }, css),
+  createElement('div', { className: 'mks-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': tr(lang, 'shareModalTitle') },
+    createElement('div', { className: 'mks-head' },
+      createElement('div', { className: 'mks-title' }, tr(lang, 'shareModalTitle')),
+      createElement('button', {
+        type: 'button',
+        className: 'mks-close',
+        'aria-label': tr(lang, 'shareClose'),
+        onClick: onClose,
+      }, '\u2715'),
+    ),
+    createElement('img', { className: 'mks-card', src: cardUrl, alt: tr(lang, 'shareCardAlt') }),
+    createElement('p', { className: 'mks-hint' }, tr(lang, 'shareQrHint')),
+    createElement('p', { className: 'mks-hint' }, tr(lang, 'shareEditHint')),
+    createElement('textarea', {
+      className: 'mks-text',
+      value,
+      onChange: (e: { target: { value: string } }) => { setDirty(true); setValue(e.target.value) },
+    }),
+    createElement('div', { className: 'mks-actions' },
+      btn(flashable(tr(lang, 'shareCopyText'), 'text'), () => runCopy(value, 'text')),
+      btn(flashable(tr(lang, 'shareCopyLink'), 'link'), () => runCopy(url, 'link')),
+      btn(feedback === 'download' ? tr(lang, 'shareCopied') : tr(lang, 'shareDownload'), download),
+      btn(tr(lang, 'shareX'), shareX),
+      canNativeShare
+        ? btn(feedback === 'native' ? tr(lang, 'shareCopied') : tr(lang, 'shareNative'), nativeShare, 'mks-primary')
+        : null,
+    ),
+  ))
+
+  return typeof document !== 'undefined' ? createPortal(root, document.body) : null
 }

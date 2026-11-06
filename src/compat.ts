@@ -42,9 +42,27 @@ export interface SessionEventLike {
   readonly data: unknown
 }
 
-/** registry.register 的鸭子类型签名（framework drives apply，域只交数学）。 */
+/** registry.register 的鸭子类型签名（framework drives apply，域只交数学）。
+ *
+ * 0.2.x（当前宿主）：`register()` 返回 `Promise<ProjectionHandle>`；运行时值是可调用
+ * thenable（`typeof === 'function'`、`instanceof Promise === false`），await 得到 handle，
+ * 调用它（旧用法）等价于释放注册。新代码应 `await` 并保留 handle，用 `handle.dispose()`。
+ * 0.1.x（旧宿主）：返回 disposer 函数。
+ */
+export interface ProjectionHandleLike<S = unknown> {
+  /** Host 态读取（本插件只用于可选诊断，不作为客户端通道）。 */
+  stateOf(session: unknown): S
+  readerFor?(session: unknown): () => S
+  dispose(): Promise<void> | void
+}
+
+export type ProjectionRegisterResult =
+  | PromiseLike<ProjectionHandleLike>
+  | ProjectionHandleLike
+  | (() => void)
+
 export interface ProjectionRegistryLike {
-  register(definition: ProjectionDefinitionLike): () => void
+  register(definition: ProjectionDefinitionLike): ProjectionRegisterResult
   onChanged(listener: (session: SessionRefLike, key: string, value: unknown, seq: number) => void): () => void
 }
 

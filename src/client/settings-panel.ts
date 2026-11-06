@@ -19,15 +19,17 @@
  * 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
  */
 
-import { createElement, useState } from 'react'
+import { createElement, Fragment, useState } from 'react'
 import type { ReactElement } from 'react'
 import { dataTick, useTickSource, resolveActiveLang } from './tick.ts'
 import { resolveLang, tr, type Lang } from './i18n.ts'
 import type { SettingsSectionValue } from './card-data.ts'
 import type { SettingsScopeLike } from './card-html.ts'
+import { insertTrackedStyle } from './style-registry.ts'
+import { ConfirmDialog } from './confirm.ts'
 
 /** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-export const PLUGIN_VERSION = '0.5.3'
+export const PLUGIN_VERSION = '0.5.12'
 
 /** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 const SITE_FALLBACK = 'https://madrank.ai'
@@ -124,6 +126,12 @@ const SETTINGS_CSS = [
 '/* 注脚 + 动作 */',
 '.mkp-note{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:17px;margin:0;padding:0 14px 11px}',
 '.mkp-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 14px 12px}',
+'.mkp-btn{appearance:none;border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35));background:transparent;',
+'  color:inherit;font:inherit;font-size:12px;line-height:18px;padding:5px 12px;border-radius:8px;cursor:pointer}',
+'.mkp-btn:hover{background:var(--dsw-interactive-bg-hover, rgba(128,128,128,.14))}',
+'.mkp-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary, #6ee7b7);outline-offset:-2px}',
+'.mkp-btn.is-danger{color:var(--dsw-alias-label-danger, #ff6b6b);',
+'  border-color:color-mix(in srgb, var(--dsw-alias-label-danger, #ff6b6b) 45%, transparent)}',
 'button.mkp-btn{min-height:30px;padding:4px 12px;border-radius:8px;',
 '  border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);',
 '  font:inherit;font-size:12px;font-weight:500;cursor:pointer}',
@@ -143,14 +151,7 @@ const SETTINGS_CSS = [
 
 /** 注入一次（data-plugin-css 去重；与 card-html/panel 同范式）。 */
 export function ensureSettingsStyles(): void {
-  if (typeof document === 'undefined') return
-  const tagId = 'madrank-usage/' + SETTINGS_STYLE_ID
-  if (document.querySelector('style[data-plugin-css="' + JSON.stringify(tagId).slice(1, -1) + '"]')) return
-  const tag = document.createElement('style')
-  tag.dataset.plugin = 'madrank-usage'
-  tag.dataset.pluginCss = tagId
-  tag.textContent = SETTINGS_CSS
-  document.head.appendChild(tag)
+  insertTrackedStyle(SETTINGS_STYLE_ID, SETTINGS_CSS)
 }
 
 // ── 小组件 ──────────────────────────────────────
@@ -257,6 +258,9 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
   )
   useTickSource(scopeSubscribe)
   const lang: Lang = resolveActiveLang()
+  // 参与/退出全球排名、清除本地数据：隐私/破坏性动作，先二次确认再写入。
+  const [confirmRank, setConfirmRank] = useState<boolean | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
 
   const sv = scopeValue(scope)
   const enabled = sv?.enabled === true
@@ -272,7 +276,7 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
 
   // 新版设置通道只承载 Config 字段；排名/同步历史由服务器侧维护。
 
-  return createElement('div', { className: 'mkp', 'data-madrank-settings': 'true' },
+  const panel = createElement('div', { className: 'mkp', 'data-madrank-settings': 'true' },
     // ── 头部：MADRank + 定位副标题 + 真实状态 pill ──
     createElement('div', { className: 'mkp-head' },
       createElement('span', { className: 'mkp-mark', 'aria-hidden': 'true' }, 'M'),
@@ -295,9 +299,7 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
           label: tr(lang, 'sRankingToggle'),
           desc: tr(lang, 'sRankingDesc'),
           checked: enabled,
-          onToggle: (next) => {
-            void Promise.resolve(scope.set('enabled', next)).catch(() => {})
-          },
+          onToggle: (next) => setConfirmRank(next),
         }),
       ),
     ),
@@ -357,6 +359,13 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
         createElement(Kv, { k: tr(lang, 'last7'), v: fmtTokensCompact(total7) + ' tokens' }),
         createElement(Kv, { k: tr(lang, 'sDataRecords'), v: tr(lang, 'sDaysCount', { n: recordDays }) }),
         createElement('p', { className: 'mkp-note' }, tr(lang, 'sDataNote')),
+        createElement('div', { className: 'mkp-actions' },
+          createElement('button', {
+            type: 'button',
+            className: 'mkp-btn is-danger',
+            onClick: () => setConfirmClear(true),
+          }, tr(lang, 'sClearBtn')),
+        ),
       ),
     ),
 
@@ -375,5 +384,33 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
         ),
       ),
     ),
+  )
+
+  return createElement(
+    Fragment,
+    null,
+    panel,
+    confirmRank === null ? null : createElement(ConfirmDialog, {
+      title: tr(lang, confirmRank ? 'confirmJoinTitle' : 'confirmLeaveTitle'),
+      body: tr(lang, confirmRank ? 'confirmJoinBody' : 'confirmLeaveBody'),
+      confirmLabel: tr(lang, 'confirmOk'),
+      cancelLabel: tr(lang, 'confirmCancel'),
+      onConfirm: () => {
+        void Promise.resolve(scope.set('enabled', confirmRank)).catch(() => {})
+        setConfirmRank(null)
+      },
+      onCancel: () => setConfirmRank(null),
+    }),
+    confirmClear ? createElement(ConfirmDialog, {
+      title: tr(lang, 'sClearBtn'),
+      body: tr(lang, 'sClearNote'),
+      confirmLabel: tr(lang, 'sClearConfirmBtn'),
+      cancelLabel: tr(lang, 'confirmCancel'),
+      onConfirm: () => {
+        void Promise.resolve(scope.set('clearedAt', Date.now())).catch(() => {})
+        setConfirmClear(false)
+      },
+      onCancel: () => setConfirmClear(false),
+    }) : null,
   )
 }
