@@ -82,7 +82,12 @@ Local Usage Store → Finished UTC Day → Aggregated Usage → MADRank Ingest
 **Never uploaded:** prompts, responses, tool arguments, individual request payloads, same-day usage.
 **Uploaded:** daily, per-model aggregated usage only.
 
-**Clear local data** lives in the card: MADRank → Settings → Local data → Clear local data (confirmation required). It removes this machine's local statistics from the clearing moment on; days before it no longer appear in the card and are no longer uploaded. Deleting rows already submitted to MADRank is not implemented yet — turn off global ranking and remove `~/.madrank/usage/` to erase the local cache entirely.
+Two deletion controls live in the card's Settings tab (both require confirmation):
+
+- **Clear local data** — removes this machine's local statistics from the clearing moment on; days before it no longer appear in the card and are no longer uploaded.
+- **Delete uploaded ranking data** — asks MADRank to delete the anonymous daily rows already submitted from this installation; local statistics stay untouched.
+
+The anonymous share token is kept in the DSH credential store when the profile provides one, so `~/.madrank/usage/global-rank.json` no longer contains it in plaintext (files fall back to the old behavior only when the credential service is absent).
 
 ---
 
@@ -256,7 +261,7 @@ TypeScript · React · Zod · Vitest.
 
 Local usage projection, 7/30-day history, top models, streak, Quick View, Settings and the daily aggregated sync protocol are implemented; golden-case and real-traffic reconciliation and DSH compatibility verification pass.
 
-**v0.5.12 targets DSH 0.2.2-rc.1** (`engines.dsh: >=0.2.2-rc.1 <0.3.0`; plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The Host syncs daily aggregates to MADRank and publishes the accepted race record through a dedicated client-visible projection (`madrankRank`).
+**v0.6.0 targets DSH 0.2.2-rc.1** (`engines.dsh: >=0.2.2-rc.1 <0.3.0`; plugin model: `Config` + `configForms` + slot-prop session data). On older DSH builds the browser half waits for activation — upgrade DSH first. The Host syncs daily aggregates to MADRank and publishes the accepted race record through a dedicated client-visible projection (`madrankRank`).
 
 ---
 

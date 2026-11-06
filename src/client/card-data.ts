@@ -129,6 +129,10 @@ export interface SettingsSectionValue {
   autoSync: boolean
   /** 本地数据清除时间戳（ms）；0 = 未清除。 */
   clearedAt?: number
+  /** 远端删除命令（非空 = 等待宿主处理）。 */
+  remoteDeleteRequest?: string
+  /** 最近一次远端删除结果（JSON: {at, ok}）。 */
+  remoteDeleteResult?: string
 }
 
 /**

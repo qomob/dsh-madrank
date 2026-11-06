@@ -137,6 +137,33 @@ describe('Settings → MADRank 配置面板（v0.2 交互规范）', () => {
     expect(Number(value)).toBeGreaterThan(0)
   })
 
+  it('「删除已上传的排名数据」：先确认，确认后 set("remoteDeleteRequest", <ms>)', () => {
+    const setSpy = vi.fn()
+    mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true }, setSpy) }))
+    const btn = Array.from(document.querySelectorAll('.mkp-btn'))
+      .find(b => b.textContent === 'Delete uploaded ranking data') as HTMLButtonElement | undefined
+    expect(btn).toBeTruthy()
+    act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(document.querySelector('.madrank-confirm')).not.toBeNull()
+    expect(setSpy).not.toHaveBeenCalled()
+    act(() => { document.querySelector('.madrank-confirm-ok')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(setSpy).toHaveBeenCalledTimes(1)
+    const [field, value] = setSpy.mock.calls[0]!
+    expect(field).toBe('remoteDeleteRequest')
+    expect(String(value)).toMatch(/^\d+$/)
+  })
+
+  it('远端删除状态回显：pending / ok / fail', () => {
+    mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true, remoteDeleteRequest: '123' }) }))
+    expect(document.body.textContent).toContain('waiting for the host')
+    act(() => { root?.unmount() })
+    mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true, remoteDeleteResult: JSON.stringify({ at: 1, ok: true }) }) }))
+    expect(document.body.textContent).toContain('Uploaded ranking data deleted')
+    act(() => { root?.unmount() })
+    mount(createElement(MadrankSettingsPanel, { scope: makeScope({ enabled: true, remoteDeleteResult: JSON.stringify({ at: 1, ok: false }) }) }))
+    expect(document.body.textContent).toContain('Delete failed')
+  })
+
   it('「自动同步」依赖排名开启：off 禁用 + hint；on 可切（set("autoSync", …)）', () => {
     mount(createElement(MadrankSettingsPanel, { scope: makeScope({}) }))
     const off = switchBtn('Auto-sync daily usage')

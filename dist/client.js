@@ -380,6 +380,12 @@ window.__ModuleLoader__.load({
 			sDaysCount: "{n} days",
 			sDataNote: "Usage statistics are stored only on this device and power the trends and the daily sync payload.",
 			sClearBtn: "Clear local data",
+			sRemoteDeleteBtn: "Delete uploaded ranking data",
+			sRemoteDeleteNote: "Asks MADRank to delete the anonymous daily rows uploaded from this installation; local statistics are not affected.",
+			sRemoteDeleteConfirmBody: "MADRank will delete the anonymous daily rows uploaded from this installation. Local usage on this device stays untouched. This cannot be undone.",
+			sRemoteDeletePending: "Delete request sent — waiting for the host…",
+			sRemoteDeleteOk: "Uploaded ranking data deleted.",
+			sRemoteDeleteFail: "Delete failed — please retry later.",
 			sClearConfirmBtn: "Confirm clear",
 			sClearPending: "Clearing…",
 			sClearDone: "Local records cleared.",
@@ -491,6 +497,12 @@ window.__ModuleLoader__.load({
 			sDaysCount: "{n} 天",
 			sDataNote: "用量统计只保存在这台设备上，用于展示趋势和生成每日同步数据。",
 			sClearBtn: "清除本地数据",
+			sRemoteDeleteBtn: "删除已上传的排名数据",
+			sRemoteDeleteNote: "向 MADRank 请求删除本安装已上传的匿名日级数据；本机统计不受影响。",
+			sRemoteDeleteConfirmBody: "MADRank 将删除本安装已上传的匿名日级数据；这台设备上的本地用量保持不变。操作不可撤销。",
+			sRemoteDeletePending: "删除请求已提交，等待宿主处理…",
+			sRemoteDeleteOk: "已上传的排名数据已删除。",
+			sRemoteDeleteFail: "删除失败，请稍后重试。",
 			sClearConfirmBtn: "确认清除",
 			sClearPending: "清除中…",
 			sClearDone: "本地统计记录已清除。",
@@ -1237,7 +1249,7 @@ window.__ModuleLoader__.load({
 		* 是「命令字段」，宿主 tick 消费后回写 0（mirror revision bump → 本面板重渲染）。
 		*/
 		/** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-		const PLUGIN_VERSION = "0.5.12";
+		const PLUGIN_VERSION = "0.6.0";
 		/** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 		const SITE_FALLBACK = "https://madrank.ai";
 		/** 从 endpoint 派生站点页（self-host 支持）；异常一律回退官方主站。 */
@@ -1257,10 +1269,27 @@ window.__ModuleLoader__.load({
 				return {
 					enabled: v.enabled === true,
 					endpoint: typeof v.endpoint === "string" ? v.endpoint : void 0,
-					autoSync: v.autoSync !== false
+					autoSync: v.autoSync !== false,
+					clearedAt: typeof v.clearedAt === "number" ? v.clearedAt : 0,
+					remoteDeleteRequest: typeof v.remoteDeleteRequest === "string" ? v.remoteDeleteRequest : "",
+					remoteDeleteResult: typeof v.remoteDeleteResult === "string" ? v.remoteDeleteResult : ""
 				};
 			} catch {
 				return;
+			}
+		}
+		/** 解析 Host 回写的远端删除结果（坏 JSON → null）。 */
+		function parseRemoteDeleteResult(raw) {
+			if (typeof raw !== "string" || raw === "") return null;
+			try {
+				const v = JSON.parse(raw);
+				if (typeof v.ok !== "boolean") return null;
+				return {
+					at: typeof v.at === "number" ? v.at : 0,
+					ok: v.ok
+				};
+			} catch {
+				return null;
 			}
 		}
 		const SETTINGS_STYLE_ID = "madrank/settings-panel";
@@ -1390,9 +1419,12 @@ window.__ModuleLoader__.load({
 			const lang = resolveActiveLang();
 			const [confirmRank, setConfirmRank] = (0, react.useState)(null);
 			const [confirmClear, setConfirmClear] = (0, react.useState)(false);
+			const [confirmRemoteDelete, setConfirmRemoteDelete] = (0, react.useState)(false);
 			const sv = scopeValue$1(scope);
 			const enabled = sv?.enabled === true;
 			const autoSync = sv?.autoSync !== false;
+			const remoteDeletePending = (sv?.remoteDeleteRequest ?? "") !== "";
+			const remoteDeleteResult = parseRemoteDeleteResult(sv?.remoteDeleteResult);
 			const snap = dataTick.get();
 			const total7 = (Array.isArray(snap.last7Days) ? snap.last7Days : []).reduce((a, d) => a + (d.primaryTokens > 0 ? d.primaryTokens : 0), 0);
 			const recordDays = Array.isArray(snap.history) ? snap.history.filter((d) => d.primaryTokens > 0).length : 0;
@@ -1445,7 +1477,17 @@ window.__ModuleLoader__.load({
 				href: siteUrl(sv?.endpoint, "/privacy"),
 				target: "_blank",
 				rel: "noreferrer noopener"
-			}, tr(lang, "sPrivacyMore"), " →")))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sData")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
+			}, tr(lang, "sPrivacyMore"), " →")), (0, react.createElement)("p", { className: "mkp-note" }, tr(lang, "sRemoteDeleteNote")), (0, react.createElement)("div", { className: "mkp-actions" }, (0, react.createElement)("button", {
+				type: "button",
+				className: "mkp-btn is-danger",
+				onClick: () => setConfirmRemoteDelete(true)
+			}, tr(lang, "sRemoteDeleteBtn"))), remoteDeletePending ? (0, react.createElement)("p", {
+				className: "mkp-note",
+				"data-remote-delete": "pending"
+			}, tr(lang, "sRemoteDeletePending")) : remoteDeleteResult !== null ? (0, react.createElement)("p", {
+				className: "mkp-note",
+				"data-remote-delete": remoteDeleteResult.ok ? "ok" : "fail"
+			}, tr(lang, remoteDeleteResult.ok ? "sRemoteDeleteOk" : "sRemoteDeleteFail")) : null)), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sData")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "last7"),
 				v: fmtTokensCompact(total7) + " tokens"
 			}), (0, react.createElement)(Kv, {
@@ -1457,7 +1499,7 @@ window.__ModuleLoader__.load({
 				onClick: () => setConfirmClear(true)
 			}, tr(lang, "sClearBtn"))))), (0, react.createElement)("section", { className: "mkp-sec" }, (0, react.createElement)("div", { className: "mkp-sh" }, tr(lang, "sPlugin")), (0, react.createElement)("div", { className: "mkp-group" }, (0, react.createElement)(Kv, {
 				k: tr(lang, "sPluginName"),
-				v: "v0.5.12"
+				v: "v0.6.0"
 			}), (0, react.createElement)(Kv, {
 				k: tr(lang, "sStatus"),
 				v: "● " + tr(lang, "sPluginEnabled")
@@ -1477,7 +1519,17 @@ window.__ModuleLoader__.load({
 					setConfirmRank(null);
 				},
 				onCancel: () => setConfirmRank(null)
-			}), confirmClear ? (0, react.createElement)(ConfirmDialog, {
+			}), confirmRemoteDelete ? (0, react.createElement)(ConfirmDialog, {
+				title: tr(lang, "sRemoteDeleteBtn"),
+				body: tr(lang, "sRemoteDeleteConfirmBody"),
+				confirmLabel: tr(lang, "confirmOk"),
+				cancelLabel: tr(lang, "confirmCancel"),
+				onConfirm: () => {
+					Promise.resolve(scope.set("remoteDeleteRequest", String(Date.now()))).catch(() => {});
+					setConfirmRemoteDelete(false);
+				},
+				onCancel: () => setConfirmRemoteDelete(false)
+			}) : null, confirmClear ? (0, react.createElement)(ConfirmDialog, {
 				title: tr(lang, "sClearBtn"),
 				body: tr(lang, "sClearNote"),
 				confirmLabel: tr(lang, "sClearConfirmBtn"),

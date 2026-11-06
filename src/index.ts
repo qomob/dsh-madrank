@@ -33,10 +33,13 @@ import type {
   CtxLike, ProjectionDefinitionLike, ProjectionHandleLike, ProjectionRegisterResult, ProjectionRegistryLike,
 } from './compat.ts'
 import { UsageStore } from './store.ts'
-import { syncPendingDays } from './sync.ts'
+import { deleteRemoteData, syncPendingDays } from './sync.ts'
 import { cardGlobalFromRecord, recordFromRace } from './global-rank.ts'
 import type { GlobalRankRecord } from './global-rank.ts'
 import { readGlobalRank, writeGlobalRank } from './global-rank-file.ts'
+import { readLastRemoteDeleteRequest, writeLastRemoteDeleteRequest } from './remote-delete.ts'
+import { adoptShareToken, credentialsOf, saveShareToken, withoutShareToken } from './share-token.ts'
+import type { CredentialsLike } from './share-token.ts'
 import { fetchShareToken, fetchRaceMe } from './whoami.ts'
 import { Config, MADRANK_ENTRY_ID, readSettings } from './settings-schema.ts'
 import { debugLog } from './debug-log.ts'
@@ -94,21 +97,29 @@ function readOrCreateInstallId(): string {
   }
 }
 
+// ── 分享令牌托管（credentials 可选；缺席时回退旧明文文件） ──────
+let credentialsService: CredentialsLike | undefined
+
 // ── 分享令牌懒换(whoami;节流:每进程每小时至多一次) ──────────
 let whoamiInFlight = false
 let whoamiLastAttempt = 0
 async function ensureShareToken(endpoint: string): Promise<void> {
-  const rec = storeHolder.globalRank
-  if (!rec || rec.shareToken) return
+  if (storeHolder.shareToken !== undefined) return
   if (whoamiInFlight || Date.now() - whoamiLastAttempt < 3_600_000) return
   whoamiInFlight = true
   whoamiLastAttempt = Date.now()
   try {
     const token = await fetchShareToken(endpoint, getAnonId(), globalThis.fetch.bind(globalThis))
-    if (token && storeHolder.globalRank) {
+    if (!token) return
+    storeHolder.shareToken = token
+    if (credentialsService !== undefined) {
+      const saved = await saveShareToken(credentialsService, token)
+      debugLog(dataDir(), `share token saved to credentials=${saved}`)
+    }
+    if (storeHolder.globalRank !== null) {
       const next: GlobalRankRecord = { ...storeHolder.globalRank, shareToken: token }
       setGlobalRank(next)
-      try { writeGlobalRank(dataDir(), next) } catch { /* 展示数据,尽力而为 */ }
+      persistGlobalRank(next)
     }
   } finally {
     whoamiInFlight = false
@@ -119,11 +130,12 @@ async function ensureShareToken(endpoint: string): Promise<void> {
 let lastRaceRefresh = 0
 async function refreshRaceThrottled(endpoint: string): Promise<void> {
   const rec = storeHolder.globalRank
-  if (!rec?.shareToken) return
+  const token = storeHolder.shareToken
+  if (!rec || token === undefined) return
   if (Date.now() - lastRaceRefresh < 15 * 60_000) return
   lastRaceRefresh = Date.now()
   try {
-    const v = await fetchRaceMe(endpoint, rec.shareToken, globalThis.fetch.bind(globalThis))
+    const v = await fetchRaceMe(endpoint, token, globalThis.fetch.bind(globalThis))
     if (!v?.me) return
     const next: GlobalRankRecord = {
       ...rec,
@@ -134,9 +146,7 @@ async function refreshRaceThrottled(endpoint: string): Promise<void> {
     }
     setGlobalRank(next)
     const unchanged = next.rank === rec.rank && next.total === rec.total && next.participants === rec.participants
-    if (!unchanged) {
-      try { writeGlobalRank(dataDir(), next) } catch { /* 尽力而为 */ }
-    }
+    if (!unchanged) persistGlobalRank(next)
   } catch { /* 静默 */ }
 }
 
@@ -148,19 +158,39 @@ const storeHolder: {
   globalRank: GlobalRankRecord | null
   /** 排名投影的缓存引用：仅在记录变化时替换，避免每次事件触发客户端重渲染。 */
   globalView: CardGlobal | null
+  /** 分享令牌（内存权威；磁盘上由 credentials 托管，缺席凭据服务时回退 global-rank.json）。 */
+  shareToken?: string
 } = {
   globalRank: null,
   globalView: null,
+  shareToken: undefined,
 }
 
 /** 统一更新排名镜像 + 客户端投影引用（同源同引用）。 */
 function setGlobalRank(rec: GlobalRankRecord | null): void {
   const prev = storeHolder.globalRank
+  if (rec?.shareToken !== undefined) storeHolder.shareToken = rec.shareToken
   storeHolder.globalRank = rec
-  storeHolder.globalView = rec === null ? null : cardGlobalFromRecord(rec)
+  const base = rec === null ? null : cardGlobalFromRecord(rec)
+  // 投影必须带 token（分享 URL / 刷新需要），但持久化记录可能已脱敏。
+  storeHolder.globalView = base !== null && storeHolder.shareToken !== undefined
+    ? { ...base, shareToken: storeHolder.shareToken }
+    : base
   if (rec?.rank !== prev?.rank || rec?.total !== prev?.total || rec?.shareToken !== prev?.shareToken) {
     debugLog(dataDir(), `rank mirror updated rank=${rec?.rank ?? 'none'} total=${rec?.total ?? 0}`)
   }
+}
+
+/** 持久化排名记录：credentials 可用时去明文；否则保持旧行为（fallback）。 */
+function persistGlobalRank(rec: GlobalRankRecord | null): void {
+  if (rec === null) return
+  const safe = credentialsService !== undefined ? withoutShareToken(rec) : rec
+  try { writeGlobalRank(dataDir(), safe as GlobalRankRecord) } catch { /* 尽力而为 */ }
+}
+
+/** 写给 card-snapshot 的 global：无论凭据是否可用都不落 token（快照是调试/兼容文件）。 */
+function persistableCardGlobal(): CardGlobal | null {
+  return cardGlobalFromRecord(withoutShareToken(storeHolder.globalRank))
 }
 
 /**
@@ -254,7 +284,7 @@ function buildDefinition(): ProjectionDefinitionLike {
 }
 
 export function apply(ctx: CtxLike & Record<string, unknown>, config?: unknown): void {
-  debugLog(dataDir(), `apply v0.5.12 config=${JSON.stringify(readSettings(config))}`)
+  debugLog(dataDir(), `apply v0.6.0 config=${JSON.stringify(readSettings(config))}`)
   const log = ctx.logger ?? {
     info: (m: string) => console.info('[madrank]', m),
     warn: (m: string, ...rest: unknown[]) => console.warn('[madrank]', m, ...rest),
@@ -376,6 +406,23 @@ async function start(
   }
   // 排名记录是跨进程持久化的（上次同步的采集结果）——启动即载入内存镜像
   setGlobalRank(readGlobalRank(dataDir()))
+  // shareToken 归属：优先 credentials；旧文件明文自动迁移并脱敏。
+  credentialsService = credentialsOf(ctx)
+  const adopted = await adoptShareToken({
+    credentials: credentialsService,
+    legacy: storeHolder.globalRank,
+    persist: (record) => { if (record !== null) writeGlobalRank(dataDir(), record) },
+    log: (message) => debugLog(dataDir(), message),
+  })
+  if (adopted.token !== undefined) {
+    storeHolder.shareToken = adopted.token
+    if (storeHolder.globalRank !== null) setGlobalRank(storeHolder.globalRank)
+  }
+  if (adopted.migrated) debugLog(dataDir(), 'share token migration: plaintext → credentials')
+  if (adopted.fallbackPlaintext) {
+    log.warn('credentials service unavailable — share token remains plaintext in global-rank.json')
+  }
+  debugLog(dataDir(), `share token source=${credentialsService === undefined ? 'file-fallback' : adopted.migrated ? 'migrated' : adopted.token !== undefined ? 'credentials' : 'none'}`)
 
   // 1) 注册 madrankUsage 单元（framework 拥有订阅与驱动，我们只交数学）。
   const definition = buildDefinition()
@@ -407,7 +454,7 @@ async function start(
         store.flush()
         writeFileSync(
           join(dataDir(), 'card-snapshot.json'),
-          JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))),
+          JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), persistableCardGlobal())),
         )
         debugLog(dataDir(), 'flush ok')
       } catch (e) {
@@ -460,10 +507,52 @@ async function start(
 
   // 3) opt-in 日级批量同步检查（≤1 次/分钟；只碰已结束的 UTC 日）
   //    配置通过 volatile 引用热更新 → 每轮读取最新值。
+  let lastRemoteDeleteRequest = readLastRemoteDeleteRequest(dataDir())
+
+  /** 把远端删除结果写回 volatile Config（并清空命令字段）；configEditor 缺席时仅记录日志。 */
+  const persistRemoteDeleteResult = async (ok: boolean): Promise<void> => {
+    const get = (ctx as { get?: (key: string) => unknown }).get
+    const service = (typeof get === 'function' ? get.call(ctx, 'configEditor') : undefined) as
+      { edit?: unknown } | undefined
+    const entry = (ctx as { fiber?: { entry?: unknown } }).fiber?.entry
+    if (typeof service?.edit !== 'function' || entry === undefined) {
+      log.warn('configEditor unavailable — remote delete result not persisted')
+      return
+    }
+    try {
+      await (service.edit as (
+        target: unknown,
+        mutate: (current: Record<string, unknown>) => Record<string, unknown>,
+      ) => Promise<unknown>)(entry, (current) => ({
+        ...current,
+        remoteDeleteRequest: '',
+        remoteDeleteResult: JSON.stringify({ at: Date.now(), ok }),
+      }))
+    } catch (e) {
+      log.warn('persist remote delete result failed', String(e))
+    }
+  }
+
   const tick = () => {
     const s = readSettings(config)
     debugLog(dataDir(), `tick enabled=${s.enabled} autoSync=${s.autoSync} endpoint=${s.endpoint} rank=${storeHolder.globalRank ? '#' + storeHolder.globalRank.rank : 'none'} clearedAt=${s.clearedAt}`)
     // 本地数据清除（设置页写 clearedAt）：裁剪已存历史并立即落盘/刷新快照。
+    // 远端删除命令：由设置页写入时间戳；消费一次，结果写回 Config。
+    if (s.remoteDeleteRequest !== '' && s.remoteDeleteRequest !== lastRemoteDeleteRequest) {
+      lastRemoteDeleteRequest = s.remoteDeleteRequest
+      writeLastRemoteDeleteRequest(dataDir(), lastRemoteDeleteRequest)
+      debugLog(dataDir(), `remote delete requested at=${lastRemoteDeleteRequest}`)
+      void deleteRemoteData(s.endpoint, getAnonId, globalThis.fetch.bind(globalThis))
+        .then(async (ok) => {
+          if (ok) { try { store.clearUploadedDays() } catch { /* ignore */ } }
+          debugLog(dataDir(), `remote delete result ok=${ok}`)
+          await persistRemoteDeleteResult(ok)
+        })
+        .catch(async (e) => {
+          debugLog(dataDir(), `remote delete failed ${String(e)}`)
+          await persistRemoteDeleteResult(false)
+        })
+    }
     if (s.clearedAt !== lastClearedAt) {
       lastClearedAt = s.clearedAt
       try {
@@ -471,7 +560,7 @@ async function start(
         store.flush()
         writeFileSync(
           join(dataDir(), 'card-snapshot.json'),
-          JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))),
+          JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), persistableCardGlobal())),
         )
         debugLog(dataDir(), `clearedAt applied=${s.clearedAt}`)
       } catch (e) {
@@ -487,18 +576,14 @@ async function start(
       const rec = recordFromRace(race, s.endpoint, Date.now())
       if (!rec) return
       const prev = storeHolder.globalRank
-      if (prev?.shareToken) rec.shareToken = prev.shareToken
+      if (storeHolder.shareToken !== undefined) rec.shareToken = storeHolder.shareToken
       if (prev !== null
         && prev.rank === rec.rank && prev.total === rec.total
         && prev.participants === rec.participants && prev.endpoint === rec.endpoint) {
         return
       }
       setGlobalRank(rec)
-      try {
-        writeGlobalRank(dataDir(), rec)
-      } catch (e) {
-        log.warn('global-rank write failed — keep in-memory mirror', String(e))
-      }
+      persistGlobalRank(rec)
       void ensureShareToken(s.endpoint)
     })
       .then((outcomes) => {

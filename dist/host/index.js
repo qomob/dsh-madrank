@@ -26,9 +26,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { PROJECTION_KEY, STATE_VERSION, applyEvent, buildView, initState, } from "./fold.js";
 import { buildCardSnapshot } from "./snapshot.js";
 import { UsageStore } from "./store.js";
-import { syncPendingDays } from "./sync.js";
+import { deleteRemoteData, syncPendingDays } from "./sync.js";
 import { cardGlobalFromRecord, recordFromRace } from "./global-rank.js";
 import { readGlobalRank, writeGlobalRank } from "./global-rank-file.js";
+import { readLastRemoteDeleteRequest, writeLastRemoteDeleteRequest } from "./remote-delete.js";
+import { adoptShareToken, credentialsOf, saveShareToken, withoutShareToken } from "./share-token.js";
 import { fetchShareToken, fetchRaceMe } from "./whoami.js";
 import { Config, MADRANK_ENTRY_ID, readSettings } from "./settings-schema.js";
 import { debugLog } from "./debug-log.js";
@@ -72,12 +74,13 @@ function readOrCreateInstallId() {
         return resolveAnonId();
     }
 }
+// ── 分享令牌托管（credentials 可选；缺席时回退旧明文文件） ──────
+let credentialsService;
 // ── 分享令牌懒换(whoami;节流:每进程每小时至多一次) ──────────
 let whoamiInFlight = false;
 let whoamiLastAttempt = 0;
 async function ensureShareToken(endpoint) {
-    const rec = storeHolder.globalRank;
-    if (!rec || rec.shareToken)
+    if (storeHolder.shareToken !== undefined)
         return;
     if (whoamiInFlight || Date.now() - whoamiLastAttempt < 3_600_000)
         return;
@@ -85,13 +88,17 @@ async function ensureShareToken(endpoint) {
     whoamiLastAttempt = Date.now();
     try {
         const token = await fetchShareToken(endpoint, getAnonId(), globalThis.fetch.bind(globalThis));
-        if (token && storeHolder.globalRank) {
+        if (!token)
+            return;
+        storeHolder.shareToken = token;
+        if (credentialsService !== undefined) {
+            const saved = await saveShareToken(credentialsService, token);
+            debugLog(dataDir(), `share token saved to credentials=${saved}`);
+        }
+        if (storeHolder.globalRank !== null) {
             const next = { ...storeHolder.globalRank, shareToken: token };
             setGlobalRank(next);
-            try {
-                writeGlobalRank(dataDir(), next);
-            }
-            catch { /* 展示数据,尽力而为 */ }
+            persistGlobalRank(next);
         }
     }
     finally {
@@ -102,13 +109,14 @@ async function ensureShareToken(endpoint) {
 let lastRaceRefresh = 0;
 async function refreshRaceThrottled(endpoint) {
     const rec = storeHolder.globalRank;
-    if (!rec?.shareToken)
+    const token = storeHolder.shareToken;
+    if (!rec || token === undefined)
         return;
     if (Date.now() - lastRaceRefresh < 15 * 60_000)
         return;
     lastRaceRefresh = Date.now();
     try {
-        const v = await fetchRaceMe(endpoint, rec.shareToken, globalThis.fetch.bind(globalThis));
+        const v = await fetchRaceMe(endpoint, token, globalThis.fetch.bind(globalThis));
         if (!v?.me)
             return;
         const next = {
@@ -120,12 +128,8 @@ async function refreshRaceThrottled(endpoint) {
         };
         setGlobalRank(next);
         const unchanged = next.rank === rec.rank && next.total === rec.total && next.participants === rec.participants;
-        if (!unchanged) {
-            try {
-                writeGlobalRank(dataDir(), next);
-            }
-            catch { /* 尽力而为 */ }
-        }
+        if (!unchanged)
+            persistGlobalRank(next);
     }
     catch { /* 静默 */ }
 }
@@ -133,15 +137,36 @@ async function refreshRaceThrottled(endpoint) {
 const storeHolder = {
     globalRank: null,
     globalView: null,
+    shareToken: undefined,
 };
 /** 统一更新排名镜像 + 客户端投影引用（同源同引用）。 */
 function setGlobalRank(rec) {
     const prev = storeHolder.globalRank;
+    if (rec?.shareToken !== undefined)
+        storeHolder.shareToken = rec.shareToken;
     storeHolder.globalRank = rec;
-    storeHolder.globalView = rec === null ? null : cardGlobalFromRecord(rec);
+    const base = rec === null ? null : cardGlobalFromRecord(rec);
+    // 投影必须带 token（分享 URL / 刷新需要），但持久化记录可能已脱敏。
+    storeHolder.globalView = base !== null && storeHolder.shareToken !== undefined
+        ? { ...base, shareToken: storeHolder.shareToken }
+        : base;
     if (rec?.rank !== prev?.rank || rec?.total !== prev?.total || rec?.shareToken !== prev?.shareToken) {
         debugLog(dataDir(), `rank mirror updated rank=${rec?.rank ?? 'none'} total=${rec?.total ?? 0}`);
     }
+}
+/** 持久化排名记录：credentials 可用时去明文；否则保持旧行为（fallback）。 */
+function persistGlobalRank(rec) {
+    if (rec === null)
+        return;
+    const safe = credentialsService !== undefined ? withoutShareToken(rec) : rec;
+    try {
+        writeGlobalRank(dataDir(), safe);
+    }
+    catch { /* 尽力而为 */ }
+}
+/** 写给 card-snapshot 的 global：无论凭据是否可用都不落 token（快照是调试/兼容文件）。 */
+function persistableCardGlobal() {
+    return cardGlobalFromRecord(withoutShareToken(storeHolder.globalRank));
 }
 /**
  * 投影定义：官方 ProjectionDefinition 形状（stateSchema 为 zod ZodType +
@@ -231,7 +256,7 @@ function buildDefinition() {
     };
 }
 export function apply(ctx, config) {
-    debugLog(dataDir(), `apply v0.5.12 config=${JSON.stringify(readSettings(config))}`);
+    debugLog(dataDir(), `apply v0.6.0 config=${JSON.stringify(readSettings(config))}`);
     const log = ctx.logger ?? {
         info: (m) => console.info('[madrank]', m),
         warn: (m, ...rest) => console.warn('[madrank]', m, ...rest),
@@ -347,6 +372,26 @@ async function start(registry, ctx, log, config) {
     }
     // 排名记录是跨进程持久化的（上次同步的采集结果）——启动即载入内存镜像
     setGlobalRank(readGlobalRank(dataDir()));
+    // shareToken 归属：优先 credentials；旧文件明文自动迁移并脱敏。
+    credentialsService = credentialsOf(ctx);
+    const adopted = await adoptShareToken({
+        credentials: credentialsService,
+        legacy: storeHolder.globalRank,
+        persist: (record) => { if (record !== null)
+            writeGlobalRank(dataDir(), record); },
+        log: (message) => debugLog(dataDir(), message),
+    });
+    if (adopted.token !== undefined) {
+        storeHolder.shareToken = adopted.token;
+        if (storeHolder.globalRank !== null)
+            setGlobalRank(storeHolder.globalRank);
+    }
+    if (adopted.migrated)
+        debugLog(dataDir(), 'share token migration: plaintext → credentials');
+    if (adopted.fallbackPlaintext) {
+        log.warn('credentials service unavailable — share token remains plaintext in global-rank.json');
+    }
+    debugLog(dataDir(), `share token source=${credentialsService === undefined ? 'file-fallback' : adopted.migrated ? 'migrated' : adopted.token !== undefined ? 'credentials' : 'none'}`);
     // 1) 注册 madrankUsage 单元（framework 拥有订阅与驱动，我们只交数学）。
     const definition = buildDefinition();
     const disposeRegister = await adoptRegistration(registry, definition, log);
@@ -375,7 +420,7 @@ async function start(registry, ctx, log, config) {
             pending = false;
             try {
                 store.flush();
-                writeFileSync(join(dataDir(), 'card-snapshot.json'), JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))));
+                writeFileSync(join(dataDir(), 'card-snapshot.json'), JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), persistableCardGlobal())));
                 debugLog(dataDir(), 'flush ok');
             }
             catch (e) {
@@ -427,16 +472,58 @@ async function start(registry, ctx, log, config) {
     }
     // 3) opt-in 日级批量同步检查（≤1 次/分钟；只碰已结束的 UTC 日）
     //    配置通过 volatile 引用热更新 → 每轮读取最新值。
+    let lastRemoteDeleteRequest = readLastRemoteDeleteRequest(dataDir());
+    /** 把远端删除结果写回 volatile Config（并清空命令字段）；configEditor 缺席时仅记录日志。 */
+    const persistRemoteDeleteResult = async (ok) => {
+        const get = ctx.get;
+        const service = (typeof get === 'function' ? get.call(ctx, 'configEditor') : undefined);
+        const entry = ctx.fiber?.entry;
+        if (typeof service?.edit !== 'function' || entry === undefined) {
+            log.warn('configEditor unavailable — remote delete result not persisted');
+            return;
+        }
+        try {
+            await service.edit(entry, (current) => ({
+                ...current,
+                remoteDeleteRequest: '',
+                remoteDeleteResult: JSON.stringify({ at: Date.now(), ok }),
+            }));
+        }
+        catch (e) {
+            log.warn('persist remote delete result failed', String(e));
+        }
+    };
     const tick = () => {
         const s = readSettings(config);
         debugLog(dataDir(), `tick enabled=${s.enabled} autoSync=${s.autoSync} endpoint=${s.endpoint} rank=${storeHolder.globalRank ? '#' + storeHolder.globalRank.rank : 'none'} clearedAt=${s.clearedAt}`);
         // 本地数据清除（设置页写 clearedAt）：裁剪已存历史并立即落盘/刷新快照。
+        // 远端删除命令：由设置页写入时间戳；消费一次，结果写回 Config。
+        if (s.remoteDeleteRequest !== '' && s.remoteDeleteRequest !== lastRemoteDeleteRequest) {
+            lastRemoteDeleteRequest = s.remoteDeleteRequest;
+            writeLastRemoteDeleteRequest(dataDir(), lastRemoteDeleteRequest);
+            debugLog(dataDir(), `remote delete requested at=${lastRemoteDeleteRequest}`);
+            void deleteRemoteData(s.endpoint, getAnonId, globalThis.fetch.bind(globalThis))
+                .then(async (ok) => {
+                if (ok) {
+                    try {
+                        store.clearUploadedDays();
+                    }
+                    catch { /* ignore */ }
+                }
+                debugLog(dataDir(), `remote delete result ok=${ok}`);
+                await persistRemoteDeleteResult(ok);
+            })
+                .catch(async (e) => {
+                debugLog(dataDir(), `remote delete failed ${String(e)}`);
+                await persistRemoteDeleteResult(false);
+            });
+        }
         if (s.clearedAt !== lastClearedAt) {
             lastClearedAt = s.clearedAt;
             try {
                 store.setClearedAt(s.clearedAt);
                 store.flush();
-                writeFileSync(join(dataDir(), 'card-snapshot.json'), JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), cardGlobalFromRecord(storeHolder.globalRank))));
+                writeFileSync(join(dataDir(), 'card-snapshot.json'), JSON.stringify(buildCardSnapshot(store, getAnonId, Date.now(), persistableCardGlobal())));
                 debugLog(dataDir(), `clearedAt applied=${s.clearedAt}`);
             }
             catch (e) {
@@ -454,20 +541,15 @@ async function start(registry, ctx, log, config) {
             if (!rec)
                 return;
             const prev = storeHolder.globalRank;
-            if (prev?.shareToken)
-                rec.shareToken = prev.shareToken;
+            if (storeHolder.shareToken !== undefined)
+                rec.shareToken = storeHolder.shareToken;
             if (prev !== null
                 && prev.rank === rec.rank && prev.total === rec.total
                 && prev.participants === rec.participants && prev.endpoint === rec.endpoint) {
                 return;
             }
             setGlobalRank(rec);
-            try {
-                writeGlobalRank(dataDir(), rec);
-            }
-            catch (e) {
-                log.warn('global-rank write failed — keep in-memory mirror', String(e));
-            }
+            persistGlobalRank(rec);
             void ensureShareToken(s.endpoint);
         })
             .then((outcomes) => {

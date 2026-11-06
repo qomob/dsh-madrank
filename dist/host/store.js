@@ -96,6 +96,11 @@ export class UsageStore {
         // （2026-09-01 生产切端点当日实锤）。
         return endpoint === undefined || rec.endpoint === endpoint;
     }
+    /** 远端删除成功后清空"已上传"标记：之后的同步会按当前数据重新上传。 */
+    clearUploadedDays() {
+        this.data.uploadedDays = {};
+        this.flush();
+    }
     /** 机器级聚合（按日）。跨会话重叠不扣减。 */
     aggregateDays() {
         const out = {};

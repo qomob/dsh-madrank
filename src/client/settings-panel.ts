@@ -29,7 +29,7 @@ import { insertTrackedStyle } from './style-registry.ts'
 import { ConfirmDialog } from './confirm.ts'
 
 /** 与 dsh-madrank/package.json version 同步（插件状态区展示）。 */
-export const PLUGIN_VERSION = '0.5.12'
+export const PLUGIN_VERSION = '0.6.0'
 
 /** 官方站点回退（self-host 端点缺席/不可解析时）。 */
 const SITE_FALLBACK = 'https://madrank.ai'
@@ -53,9 +53,24 @@ function scopeValue(scope: SettingsScopeLike | undefined): SettingsSectionValue 
       enabled: v.enabled === true,
       endpoint: typeof v.endpoint === 'string' ? v.endpoint : undefined,
       autoSync: v.autoSync !== false,
+      clearedAt: typeof v.clearedAt === 'number' ? v.clearedAt : 0,
+      remoteDeleteRequest: typeof v.remoteDeleteRequest === 'string' ? v.remoteDeleteRequest : '',
+      remoteDeleteResult: typeof v.remoteDeleteResult === 'string' ? v.remoteDeleteResult : '',
     }
   } catch {
     return undefined
+  }
+}
+
+/** 解析 Host 回写的远端删除结果（坏 JSON → null）。 */
+function parseRemoteDeleteResult(raw: string | undefined): { at: number; ok: boolean } | null {
+  if (typeof raw !== 'string' || raw === '') return null
+  try {
+    const v = JSON.parse(raw) as { at?: unknown; ok?: unknown }
+    if (typeof v.ok !== 'boolean') return null
+    return { at: typeof v.at === 'number' ? v.at : 0, ok: v.ok }
+  } catch {
+    return null
   }
 }
 
@@ -261,10 +276,13 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
   // 参与/退出全球排名、清除本地数据：隐私/破坏性动作，先二次确认再写入。
   const [confirmRank, setConfirmRank] = useState<boolean | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [confirmRemoteDelete, setConfirmRemoteDelete] = useState(false)
 
   const sv = scopeValue(scope)
   const enabled = sv?.enabled === true
   const autoSync = sv?.autoSync !== false
+  const remoteDeletePending = (sv?.remoteDeleteRequest ?? '') !== ''
+  const remoteDeleteResult = parseRemoteDeleteResult(sv?.remoteDeleteResult)
 
   // 本地统计概览（Quick View 同一快照缝；只读，不做第二份聚合）
   const snap = dataTick.get()
@@ -349,6 +367,20 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
             target: '_blank', rel: 'noreferrer noopener',
           }, tr(lang, 'sPrivacyMore'), ' \u2192'),
         ),
+        createElement('p', { className: 'mkp-note' }, tr(lang, 'sRemoteDeleteNote')),
+        createElement('div', { className: 'mkp-actions' },
+          createElement('button', {
+            type: 'button',
+            className: 'mkp-btn is-danger',
+            onClick: () => setConfirmRemoteDelete(true),
+          }, tr(lang, 'sRemoteDeleteBtn')),
+        ),
+        remoteDeletePending
+          ? createElement('p', { className: 'mkp-note', 'data-remote-delete': 'pending' }, tr(lang, 'sRemoteDeletePending'))
+          : remoteDeleteResult !== null
+            ? createElement('p', { className: 'mkp-note', 'data-remote-delete': remoteDeleteResult.ok ? 'ok' : 'fail' },
+                tr(lang, remoteDeleteResult.ok ? 'sRemoteDeleteOk' : 'sRemoteDeleteFail'))
+            : null,
       ),
     ),
 
@@ -401,6 +433,17 @@ export function MadrankSettingsPanel(props: MadrankSettingsPanelProps): ReactEle
       },
       onCancel: () => setConfirmRank(null),
     }),
+    confirmRemoteDelete ? createElement(ConfirmDialog, {
+      title: tr(lang, 'sRemoteDeleteBtn'),
+      body: tr(lang, 'sRemoteDeleteConfirmBody'),
+      confirmLabel: tr(lang, 'confirmOk'),
+      cancelLabel: tr(lang, 'confirmCancel'),
+      onConfirm: () => {
+        void Promise.resolve(scope.set('remoteDeleteRequest', String(Date.now()))).catch(() => {})
+        setConfirmRemoteDelete(false)
+      },
+      onCancel: () => setConfirmRemoteDelete(false),
+    }) : null,
     confirmClear ? createElement(ConfirmDialog, {
       title: tr(lang, 'sClearBtn'),
       body: tr(lang, 'sClearNote'),

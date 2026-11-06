@@ -112,6 +112,12 @@ export class UsageStore {
     return endpoint === undefined || rec.endpoint === endpoint
   }
 
+  /** 远端删除成功后清空"已上传"标记：之后的同步会按当前数据重新上传。 */
+  clearUploadedDays(): void {
+    this.data.uploadedDays = {}
+    this.flush()
+  }
+
   /** 机器级聚合（按日）。跨会话重叠不扣减。 */
   aggregateDays(): Record<string, { models: Record<string, ModelBuckets>; activeSeconds: number }> {
     const out: Record<string, { models: Record<string, ModelBuckets>; activeSeconds: number }> = {}

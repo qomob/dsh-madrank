@@ -25,6 +25,12 @@ export const Config = z.object({
     /** 本地数据清除时间戳（ms）：早于该 UTC 日的历史不再显示/不再上传。 */
     clearedAt: z.number().default(0).volatile()
         .description('本地数据清除时间戳；设置后早于该 UTC 日的历史不再显示、也不再上传。'),
+    /** 远端删除命令（Host 消费一次；值为触发时间戳，处理后清空）。 */
+    remoteDeleteRequest: z.string().default('').volatile()
+        .description('内部命令字段：请求删除已上传到 MADRank 的匿名数据（由设置页按钮写入）。'),
+    /** 远端删除结果（Host 回写；JSON 字符串 {at, ok}）。 */
+    remoteDeleteResult: z.string().default('').volatile()
+        .description('内部状态字段：最近一次远端删除的结果（JSON: {at, ok}）。'),
 });
 function readRef(value, fallback) {
     if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
@@ -47,5 +53,7 @@ export function readSettings(raw) {
         endpoint: readRef(cfg['endpoint'], INGEST_ENDPOINT_DEFAULT),
         autoSync: readRef(cfg['autoSync'], true) !== false,
         clearedAt: Math.max(0, Math.floor(readRef(cfg['clearedAt'], 0))),
+        remoteDeleteRequest: readRef(cfg['remoteDeleteRequest'], ''),
+        remoteDeleteResult: readRef(cfg['remoteDeleteResult'], ''),
     };
 }

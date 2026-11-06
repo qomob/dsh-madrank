@@ -110,11 +110,10 @@ describe('apply(ctx) 接线路径（结构化兼容层，无需真实宿主）',
       }
 
       apply(ctx as never)
-      // 注册调用同步发生，但消费者（onChanged）必须等 await 完成后才发布
-      expect(registered).toContain('madrankUsage')
+      // start() 内部还有 shareToken 解析等异步前置；消费者在 await 完成后才发布。
       expect(changeListener).toBeNull()
-
       await flush()
+      expect(registered).toContain('madrankUsage')
       expect(changeListener).toBeTruthy()
       expect(handles).toHaveLength(2)
       expect(handles[0]!.dispose).not.toHaveBeenCalled()

@@ -29,6 +29,12 @@ export const Config = z.object({
   /** 本地数据清除时间戳（ms）：早于该 UTC 日的历史不再显示/不再上传。 */
   clearedAt: z.number().default(0).volatile()
     .description('本地数据清除时间戳；设置后早于该 UTC 日的历史不再显示、也不再上传。'),
+  /** 远端删除命令（Host 消费一次；值为触发时间戳，处理后清空）。 */
+  remoteDeleteRequest: z.string().default('').volatile()
+    .description('内部命令字段：请求删除已上传到 MADRank 的匿名数据（由设置页按钮写入）。'),
+  /** 远端删除结果（Host 回写；JSON 字符串 {at, ok}）。 */
+  remoteDeleteResult: z.string().default('').volatile()
+    .description('内部状态字段：最近一次远端删除的结果（JSON: {at, ok}）。'),
 })
 
 /** 解析后的配置形状（readSettings 的返回）。 */
@@ -38,6 +44,10 @@ export interface MadrankUsageSettings {
   autoSync: boolean
   /** 0 = 未清除；否则为该次清除的毫秒时间戳。 */
   clearedAt: number
+  /** 远端删除命令（空 = 无请求）。 */
+  remoteDeleteRequest: string
+  /** 最近一次远端删除结果 JSON（空 = 从未执行）。 */
+  remoteDeleteResult: string
 }
 
 /** volatile 字段的冻结引用（schemastery createVolatile 的对外面）。 */
@@ -66,5 +76,7 @@ export function readSettings(raw: unknown): MadrankUsageSettings {
     endpoint: readRef<string>(cfg['endpoint'], INGEST_ENDPOINT_DEFAULT),
     autoSync: readRef<boolean>(cfg['autoSync'], true) !== false,
     clearedAt: Math.max(0, Math.floor(readRef<number>(cfg['clearedAt'], 0))),
+    remoteDeleteRequest: readRef<string>(cfg['remoteDeleteRequest'], ''),
+    remoteDeleteResult: readRef<string>(cfg['remoteDeleteResult'], ''),
   }
 }
